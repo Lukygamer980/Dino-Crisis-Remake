@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 87d1bce456b67454f90c64b3539294b2
+MonoImporter:
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 38568
+  packageName: Ragdoll and Transition to Mecanim
+  packageVersion: 1.6
+  assetPath: Assets/BzKovSoft/RagdollTemplate/Scripts/Tools/BzDisplayHealth.cs
+  uploadId: 169219

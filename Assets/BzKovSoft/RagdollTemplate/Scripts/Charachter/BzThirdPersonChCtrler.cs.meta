@@ -1,0 +1,19 @@
+fileFormatVersion: 2
+guid: 96c11ce03af2a95439874b128d859388
+timeCreated: 1429201633
+licenseType: Store
+MonoImporter:
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 38568
+  packageName: Ragdoll and Transition to Mecanim
+  packageVersion: 1.6
+  assetPath: Assets/BzKovSoft/RagdollTemplate/Scripts/Charachter/BzThirdPersonChCtrler.cs
+  uploadId: 169219

@@ -1,0 +1,19 @@
+fileFormatVersion: 2
+guid: c90d35674025fbb4e912ffd4e5a67fec
+timeCreated: 1429282716
+licenseType: Store
+MonoImporter:
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 38568
+  packageName: Ragdoll and Transition to Mecanim
+  packageVersion: 1.6
+  assetPath: Assets/BzKovSoft/RagdollTemplate/Scripts/Charachter/BzThirdPersonBase.cs
+  uploadId: 169219

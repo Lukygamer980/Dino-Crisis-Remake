@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: ce5a92e15043a6548a1d7250b8054f91
+timeCreated: 1451465377
+licenseType: Store
+DefaultImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 38568
+  packageName: Ragdoll and Transition to Mecanim
+  packageVersion: 1.6
+  assetPath: Assets/BzKovSoft/RagdollTemplate/SampleScenes/ragdollFull_Rigidbody.unity
+  uploadId: 169219
