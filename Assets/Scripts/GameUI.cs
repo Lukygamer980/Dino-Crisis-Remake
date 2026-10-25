@@ -9,6 +9,7 @@ public class GameUI : MonoBehaviour
     public static GameUI Instance { get; private set; }
 
     public PlayerController player;
+    public string startRoomName = "";
 
     const string ControlsHelp =
         "Mouse / right stick look   WASD / left stick move   Shift / Square run   E / Cross interact\n" +
@@ -29,7 +30,7 @@ public class GameUI : MonoBehaviour
 
     IEnumerator Start()
     {
-        ShowMessage("LOADING DOCK", 2.5f);
+        ShowMessage(startRoomName, 2.5f);
         yield return Fade(0f, 1.2f);
     }
 
@@ -51,7 +52,7 @@ public class GameUI : MonoBehaviour
 
     public void GameOver() => StartCoroutine(ShowEndScreen("GAME OVER", new Color(0.35f, 0f, 0f)));
 
-    public void DemoComplete() => StartCoroutine(ShowEndScreen("YOU ESCAPED\nDEMO COMPLETE", Color.black));
+    public void DemoComplete() => StartCoroutine(ShowEndScreen("ELEVATOR TO B1\nDEMO COMPLETE", Color.black));
 
     IEnumerator ShowEndScreen(string title, Color tint)
     {

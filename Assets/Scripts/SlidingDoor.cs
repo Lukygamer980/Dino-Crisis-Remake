@@ -3,10 +3,12 @@ using UnityEngine.AI;
 
 // A double sliding door in a doorway between two rooms. Its halves slide apart into the wall
 // whenever the player or a raptor comes close, and close again once nobody is near. Local +Z
-// points into the front room. A locked door opens only for a player carrying the required item.
-// The panels are left out of the NavMesh bake; only a locked, shut door carves the doorway out
-// of it, so raptors path through doors they can open and around ones they can't. Opening makes
-// enough noise that a raptor nearby comes to look.
+// points into the front room. A locked door opens only for a player carrying the required item,
+// and a powered one (such as a laser shutter) only once its generator runs. A door that keeps
+// raptors out, like the save room's, never opens for them.
+// The panels are left out of the NavMesh bake; only a door raptors can't get through carves the
+// doorway out of it, so they path through doors they can open and around ones they can't.
+// Opening makes enough noise that a raptor nearby comes to look.
 public class SlidingDoor : MonoBehaviour
 {
     public Transform leftPanel;
@@ -28,6 +30,8 @@ public class SlidingDoor : MonoBehaviour
     public string lockedMessage = "It's locked.";
     // Walking out through the back of this door finishes the demo.
     public bool endsDemo;
+    public GeneratorSwitch powerSource;
+    public bool keepsRaptorsOut;
 
     PlayerController player;
     Vector3 leftClosed;
@@ -48,19 +52,19 @@ public class SlidingDoor : MonoBehaviour
 
     void Update()
     {
-        bool locked = requiredItem != "" && !player.HasItem(requiredItem);
+        bool locked = (requiredItem != "" && !player.HasItem(requiredItem)) || (powerSource != null && !powerSource.IsOn);
         bool playerNear = !player.IsDead && IsNear(player.transform.position);
         if (locked && playerNear && !playerWasNear) GameUI.Instance.ShowMessage(lockedMessage);
         playerWasNear = playerNear;
 
-        bool wantOpen = !locked && (playerNear || RaptorNear());
+        bool wantOpen = !locked && (playerNear || (!keepsRaptorsOut && RaptorNear()));
         if (wantOpen && !wasOpening && playerNear) Raptor.MakeNoise(transform.position, noiseRadius);
         wasOpening = wantOpen;
         open = Mathf.MoveTowards(open, wantOpen ? 1f : 0f, slideSpeed * Time.deltaTime);
         float slide = Mathf.SmoothStep(0f, 1f, open) * slideDistance;
         leftPanel.localPosition = leftClosed + Vector3.left * slide;
         rightPanel.localPosition = rightClosed + Vector3.right * slide;
-        if (blocker != null) blocker.enabled = locked && open <= 0f;
+        if (blocker != null) blocker.enabled = keepsRaptorsOut || (locked && open <= 0f);
 
         TrackPlayerSide();
     }

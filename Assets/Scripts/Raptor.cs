@@ -33,6 +33,8 @@ public class Raptor : MonoBehaviour
     public float losePlayerTime = 1.5f;
     // How long it looks around at a noise or the player's last seen position before giving up.
     public float lookAroundDuration = 6f;
+    // Its screech on spotting the player calls other raptors this close over to look.
+    public float packCallRadius = 14f;
 
     enum State { Patrol, Investigate, Chase, Search, LookAround, WindUp, Recover, Stagger, Dead }
 
@@ -55,16 +57,22 @@ public class Raptor : MonoBehaviour
 
     void OnDisable() => All.Remove(this);
 
-    void Start()
+    // In Awake, so a raptor woken mid-frame (by the generator) can already react to noise.
+    void Awake()
     {
         agent = GetComponent<NavMeshAgent>();
         agent.updateRotation = false;
         body = GetComponent<CharacterController>();
+    }
+
+    void Start()
+    {
         player = FindAnyObjectByType<PlayerController>();
         bodyRenderers = GetComponentsInChildren<Renderer>();
         originalColors = new Color[bodyRenderers.Length];
         for (int i = 0; i < bodyRenderers.Length; i++) originalColors[i] = bodyRenderers[i].material.color;
-        ResumePatrol();
+        // Unless a noise already sent it somewhere.
+        if (state == State.Patrol) ResumePatrol();
     }
 
     void Update()
@@ -227,14 +235,18 @@ public class Raptor : MonoBehaviour
         GoTo(waypoints[waypointIndex].position, wanderSpeed);
     }
 
-    // Starts the chase. Screeches only when the raptor wasn't already after the player.
+    // Starts the chase. Screeches only when the raptor wasn't already after the player, and the
+    // screech brings the rest of the pack, so raptors hunt together.
     public void Alert()
     {
-        if (state is State.Chase or State.WindUp or State.Recover or State.Stagger or State.Dead) return;
+        if (IsHunting) return;
         state = State.Chase;
         timeWithoutSight = 0f;
         GameUI.Instance.ShowMessage("*SCREECH*", 1.2f);
+        MakeNoise(transform.position, packCallRadius);
     }
+
+    bool IsHunting => state is State.Chase or State.WindUp or State.Recover or State.Stagger or State.Dead;
 
     // Something loud happened at `position`: every raptor within `radius` that isn't already
     // after the player goes there to look.
@@ -248,7 +260,7 @@ public class Raptor : MonoBehaviour
 
     void Investigate(Vector3 position)
     {
-        if (state is State.Chase or State.WindUp or State.Recover or State.Stagger or State.Dead) return;
+        if (IsHunting) return;
         state = State.Investigate;
         GoTo(position, investigateSpeed);
     }
