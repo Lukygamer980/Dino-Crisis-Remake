@@ -9,7 +9,7 @@ using UnityEngine.Rendering;
 // edits made to the generated scene are lost on the next build.
 //
 // Rooms are placed far apart and are not physically connected: doors teleport the
-// player between them, so each room only needs to look right from its own cameras.
+// player between them, so each room only needs to look right from the inside.
 public static class SceneBuilder
 {
     const string ScenePath = "Assets/Scenes/DinoDemo.unity";
@@ -74,11 +74,6 @@ public static class SceneBuilder
 
         PointLight(room, new Vector3(-4f, 2.9f, 0f), new Color(1f, 0.72f, 0.42f), 1.8f, 10f, flicker: false, shadows: true);
         PointLight(room, new Vector3(4f, 2.9f, 2f), new Color(0.6f, 0.75f, 1f), 1.5f, 9f, flicker: true, shadows: false);
-
-        CameraZone(room, "West Half", new Vector3(-4f, 1.5f, 0f), new Vector3(8.2f, 4f, 12f),
-            shotPosition: new Vector3(6.8f, 4.6f, -5.3f), lookAt: new Vector3(-4f, 0f, 1f), trackPlayer: false);
-        CameraZone(room, "East Half", new Vector3(4f, 1.5f, 0f), new Vector3(8f, 4f, 12f),
-            shotPosition: new Vector3(-7.2f, 3.6f, 5.3f), lookAt: new Vector3(4f, 0f, -1.5f), trackPlayer: true);
     }
 
     static void FurnishCorridor(Transform room)
@@ -95,11 +90,6 @@ public static class SceneBuilder
         PointLight(room, new Vector3(0f, 2.9f, -9.5f), new Color(0.8f, 0.85f, 1f), 0.8f, 5f, flicker: false, shadows: false);
         PointLight(room, new Vector3(1.5f, 2.8f, -3f), new Color(1f, 0.12f, 0.08f), 2.2f, 7f, flicker: true, shadows: true);
         PointLight(room, new Vector3(-1.5f, 2.8f, 6f), new Color(1f, 0.12f, 0.08f), 2.2f, 7f, flicker: true, shadows: false);
-
-        CameraZone(room, "South Half", new Vector3(0f, 1.5f, -5.5f), new Vector3(4.2f, 4f, 11f),
-            shotPosition: new Vector3(1.5f, 3f, 10.5f), lookAt: new Vector3(0f, 0.8f, -7f), trackPlayer: false);
-        CameraZone(room, "North Half", new Vector3(0f, 1.5f, 5.5f), new Vector3(4.2f, 4f, 11f),
-            shotPosition: new Vector3(0.9f, 3f, -2.5f), lookAt: new Vector3(0f, 0.8f, 8f), trackPlayer: true);
     }
 
     static void FurnishControlRoom(Transform room)
@@ -121,11 +111,6 @@ public static class SceneBuilder
 
         PointLight(room, new Vector3(0f, 2.9f, 0f), new Color(0.7f, 0.85f, 1f), 1.4f, 11f, flicker: true, shadows: true);
         PointLight(room, new Vector3(-4f, 1.5f, 0.4f), new Color(0.2f, 1f, 0.4f), 0.9f, 3.5f, flicker: false, shadows: false);
-
-        CameraZone(room, "South Half", new Vector3(0f, 1.5f, -3.5f), new Vector3(14f, 4f, 7f),
-            shotPosition: new Vector3(6.3f, 4.4f, 6.3f), lookAt: new Vector3(-2f, 0f, -4f), trackPlayer: false);
-        CameraZone(room, "North Half", new Vector3(0f, 1.5f, 3.5f), new Vector3(14f, 4f, 7f),
-            shotPosition: new Vector3(-6.3f, 4.4f, -6.3f), lookAt: new Vector3(2f, 0f, 4f), trackPlayer: true);
     }
 
     // ---------- Building blocks ----------
@@ -174,22 +159,6 @@ public static class SceneBuilder
         b.door.destination = a.spawn;
         // A door announces the room it leads into.
         (a.door.roomName, b.door.roomName) = (b.door.roomName, a.door.roomName);
-    }
-
-    static void CameraZone(Transform room, string name, Vector3 center, Vector3 size, Vector3 shotPosition, Vector3 lookAt, bool trackPlayer)
-    {
-        GameObject zoneObject = new("Camera Zone - " + name);
-        zoneObject.transform.SetParent(room, false);
-        zoneObject.transform.localPosition = center;
-        CameraZone zone = zoneObject.AddComponent<CameraZone>();
-        zone.size = size;
-        zone.trackPlayer = trackPlayer;
-
-        Transform shot = new GameObject("Shot").transform;
-        shot.SetParent(zoneObject.transform, false);
-        shot.position = room.TransformPoint(shotPosition);
-        shot.rotation = Quaternion.LookRotation(room.TransformPoint(lookAt) - shot.position);
-        zone.shot = shot;
     }
 
     static void PointLight(Transform room, Vector3 position, Color color, float intensity, float range, bool flicker, bool shadows)
@@ -296,10 +265,10 @@ public static class SceneBuilder
         Camera camera = cameraObject.AddComponent<Camera>();
         camera.clearFlags = CameraClearFlags.SolidColor;
         camera.backgroundColor = Color.black;
-        camera.nearClipPlane = 0.1f;
+        camera.nearClipPlane = 0.05f;
         camera.farClipPlane = 60f;
         cameraObject.AddComponent<AudioListener>();
-        cameraObject.AddComponent<CameraDirector>().player = player.transform;
+        cameraObject.AddComponent<ThirdPersonCamera>().player = player;
 
         GameObject systems = new("Game UI");
         systems.AddComponent<GameUI>().player = player;

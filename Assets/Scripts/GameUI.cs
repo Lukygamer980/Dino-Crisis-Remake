@@ -11,8 +11,8 @@ public class GameUI : MonoBehaviour
     public PlayerController player;
 
     const string ControlsHelp =
-        "WASD / left stick move   Shift / Square run   E / Cross interact\n" +
-        "Hold right mouse to aim at the cursor (K / L2 lock on)   Left mouse / J / R2 shoots, even on the move";
+        "Mouse / right stick look   WASD / left stick move   Shift / Square run   E / Cross interact\n" +
+        "Hold right mouse / L2 to aim over the shoulder   Left mouse / J / R2 shoots, even on the move";
 
     float fadeAlpha = 1f;
     float damageFlash;
@@ -57,6 +57,8 @@ public class GameUI : MonoBehaviour
     {
         yield return new WaitForSeconds(1.2f);
         endTitle = title;
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
         endTint = tint;
         yield return Fade(0.85f, 1f);
     }
@@ -102,6 +104,7 @@ public class GameUI : MonoBehaviour
         GUI.color = Color.white;
         GUI.Label(new Rect(24f, height - 42f, 300f, 30f), "HANDGUN  " + player.ammo, hudStyle);
 
+        if (player.IsAiming) DrawCrosshair(width / 2f, height / 2f);
         if (prompt != null) GUI.Label(new Rect(0f, height - 130f, width, 30f), prompt, centeredStyle);
         if (message != null && Time.time < messageHideTime) GUI.Label(new Rect(0f, height * 0.72f, width, 60f), message, centeredStyle);
         if (Time.timeSinceLevelLoad < 12f)
@@ -110,6 +113,17 @@ public class GameUI : MonoBehaviour
             GUI.Label(new Rect(0f, 10f, width, 50f), ControlsHelp, centeredStyle);
             centeredStyle.fontSize = 22;
         }
+    }
+
+    static void DrawCrosshair(float x, float y)
+    {
+        GUI.color = new Color(1f, 1f, 1f, 0.8f);
+        const float gap = 4f, length = 8f, thickness = 2f;
+        GUI.DrawTexture(new Rect(x - gap - length, y - thickness / 2f, length, thickness), Texture2D.whiteTexture);
+        GUI.DrawTexture(new Rect(x + gap, y - thickness / 2f, length, thickness), Texture2D.whiteTexture);
+        GUI.DrawTexture(new Rect(x - thickness / 2f, y - gap - length, thickness, length), Texture2D.whiteTexture);
+        GUI.DrawTexture(new Rect(x - thickness / 2f, y + gap, thickness, length), Texture2D.whiteTexture);
+        GUI.color = Color.white;
     }
 
     static void DrawOverlay(Color color)
