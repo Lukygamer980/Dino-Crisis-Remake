@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 9fe2514311cf5eb418aeba81f9bd905f
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 7400000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Animation/Animations/Weapon/AK_Reload.anim
+  uploadId: 822108

@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: a0e90b0bead8e8b48a741377181c61cd
+DefaultImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Scenes/Demo Scene.unity
+  uploadId: 822108

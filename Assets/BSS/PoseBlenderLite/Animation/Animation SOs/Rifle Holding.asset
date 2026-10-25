@@ -1,0 +1,320 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a3d38034439140e44868be21bf94004b, type: 3}
+  m_Name: Rifle Holding
+  m_EditorClassIdentifier: 
+  boneTransforms:
+  - boneName: Root
+    bonePath: 
+    localRotation: {x: -0, y: -0, z: -0, w: 1}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Hips
+    bonePath: Hips
+    localRotation: {x: -0.110773385, y: 0.3404966, z: 0.023781598, w: 0.9333947}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Spine_01
+    bonePath: Hips/Spine_01
+    localRotation: {x: -0.029016316, y: 0.3415295, z: -0.0051547587, w: 0.9394089}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Spine_02
+    bonePath: Hips/Spine_01/Spine_02
+    localRotation: {x: 0.042197615, y: 0.34031785, z: -0.024769217, w: 0.9390366}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Spine_03
+    bonePath: Hips/Spine_01/Spine_02/Spine_03
+    localRotation: {x: 0.23736951, y: 0.32792035, z: -0.08913613, w: 0.91004336}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Clavicle_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L
+    localRotation: {x: -0.3853981, y: 0.66577995, z: 0.4072429, w: 0.49229968}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Shoulder_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L
+    localRotation: {x: -0.5169077, y: -0.5709492, z: -0.55121785, w: -0.3209093}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Elbow_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L
+    localRotation: {x: 0.10411219, y: -0.5050261, z: -0.6351678, w: 0.57504094}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Hand_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L
+    localRotation: {x: 0.3074382, y: 0.13942587, z: -0.5721868, w: 0.74742544}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: IndexFinger_01_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/IndexFinger_01_L
+    localRotation: {x: -0.12816799, y: -0.5821706, z: -0.4035599, w: 0.69411135}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: IndexFinger_02_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/IndexFinger_01_L/IndexFinger_02_L
+    localRotation: {x: 0.07843691, y: -0.6163919, z: -0.09999594, w: 0.7771167}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: IndexFinger_03_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/IndexFinger_01_L/IndexFinger_02_L/IndexFinger_03_L
+    localRotation: {x: 0.14523473, y: -0.7290815, z: 0.07014388, w: 0.6651522}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: IndexFinger_04_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/IndexFinger_01_L/IndexFinger_02_L/IndexFinger_03_L/IndexFinger_04_L
+    localRotation: {x: 0.13982867, y: -0.78547734, z: 0.06727365, w: 0.599123}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: MiddleFinger_01_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/MiddleFinger_01_L
+    localRotation: {x: 0.13999945, y: 0.07551876, z: -0.32577825, w: 0.93196917}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: MiddleFinger_02_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/MiddleFinger_01_L/MiddleFinger_02_L
+    localRotation: {x: 0.065571725, y: 0.06621596, z: 0.022373293, w: 0.99539757}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: MiddleFinger_03_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/MiddleFinger_01_L/MiddleFinger_02_L/MiddleFinger_03_L
+    localRotation: {x: 0.051222265, y: -0.088761, z: 0.14775077, w: 0.9837012}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: MiddleFinger_04_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/MiddleFinger_01_L/MiddleFinger_02_L/MiddleFinger_03_L/MiddleFinger_04_L
+    localRotation: {x: -0.009484738, y: 0.026341714, z: 0.20651087, w: 0.9780443}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: PinkyFinger_01_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/PinkyFinger_01_L
+    localRotation: {x: -0.00060373545, y: 0.9851462, z: 0.11912042, w: 0.123683296}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: PinkyFinger_02_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/PinkyFinger_01_L/PinkyFinger_02_L
+    localRotation: {x: -0.054166995, y: 0.9849052, z: 0.12142658, w: 0.11083317}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: PinkyFinger_03_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/PinkyFinger_01_L/PinkyFinger_02_L/PinkyFinger_03_L
+    localRotation: {x: -0.1193278, y: 0.9791266, z: 0.10637295, w: 0.12552774}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: PinkyFinger_04_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/PinkyFinger_01_L/PinkyFinger_02_L/PinkyFinger_03_L/PinkyFinger_04_L
+    localRotation: {x: -0.26041123, y: 0.9519929, z: 0.08711022, w: 0.13530666}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: RingFinger_01_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/RingFinger_01_L
+    localRotation: {x: 0.23131666, y: 0.96689665, z: 0.10210124, w: -0.03434389}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: RingFinger_02_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/RingFinger_01_L/RingFinger_02_L
+    localRotation: {x: -0.046933107, y: 0.99793196, z: 0.042596996, w: 0.010742694}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: RingFinger_03_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/RingFinger_01_L/RingFinger_02_L/RingFinger_03_L
+    localRotation: {x: -0.22063836, y: 0.97468054, z: 0.017576247, w: 0.03175906}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: RingFinger_04_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/RingFinger_01_L/RingFinger_02_L/RingFinger_03_L/RingFinger_04_L
+    localRotation: {x: -0.22380683, y: 0.97399116, z: 0.01896, w: 0.02988109}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Thumb_01_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/Thumb_01_L
+    localRotation: {x: 0.17844197, y: 0.8951832, z: 0.3999108, w: 0.08293249}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Thumb_02_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/Thumb_01_L/Thumb_02_L
+    localRotation: {x: 0.22661595, y: 0.8942381, z: 0.37943828, w: 0.07078737}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Thumb_03_L
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_L/Shoulder_L/Elbow_L/Hand_L/Thumb_01_L/Thumb_02_L/Thumb_03_L
+    localRotation: {x: 0.31439683, y: 0.8538613, z: 0.33245775, w: 0.24808945}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Clavicle_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R
+    localRotation: {x: -0.31849676, y: 0.6509889, z: -0.44652802, w: 0.52477264}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Shoulder_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R
+    localRotation: {x: -0.01521492, y: -0.2685479, z: -0.89604515, w: 0.3532055}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Elbow_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R
+    localRotation: {x: 0.20075406, y: -0.8538401, z: -0.47845167, w: 0.041703455}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Hand_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R
+    localRotation: {x: 0.040387478, y: -0.69995725, z: -0.7006378, w: -0.13242327}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: IndexFinger_01_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/IndexFinger_01_R
+    localRotation: {x: 0.50654876, y: 0.39563808, z: 0.49733123, w: 0.5827016}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: IndexFinger_02_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/IndexFinger_01_R/IndexFinger_02_R
+    localRotation: {x: -0.37933612, y: -0.3051268, z: -0.54716706, w: -0.6808896}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: IndexFinger_03_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/IndexFinger_01_R/IndexFinger_02_R/IndexFinger_03_R
+    localRotation: {x: 0.28492132, y: 0.08753134, z: 0.5874119, w: 0.75240016}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: IndexFinger_04_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/IndexFinger_01_R/IndexFinger_02_R/IndexFinger_03_R/IndexFinger_04_R
+    localRotation: {x: 0.32543123, y: 0.032509685, z: 0.5779245, w: 0.74769086}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: MiddleFinger_01_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/MiddleFinger_01_R
+    localRotation: {x: -0.015096627, y: 0.63079566, z: 0.76652783, w: 0.119601324}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: MiddleFinger_02_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/MiddleFinger_01_R/MiddleFinger_02_R
+    localRotation: {x: 0.3569563, y: -0.50391644, z: -0.56130576, w: -0.55098695}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: MiddleFinger_03_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/MiddleFinger_01_R/MiddleFinger_02_R/MiddleFinger_03_R
+    localRotation: {x: -0.3511368, y: 0.3243441, z: 0.5381329, w: 0.6942028}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: MiddleFinger_04_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/MiddleFinger_01_R/MiddleFinger_02_R/MiddleFinger_03_R/MiddleFinger_04_R
+    localRotation: {x: -0.4759734, y: 0.39235234, z: 0.44220954, w: 0.65112233}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: PinkyFinger_01_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/PinkyFinger_01_R
+    localRotation: {x: -0.73925, y: 0.36460993, z: -0.29928812, w: -0.48062068}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: PinkyFinger_02_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/PinkyFinger_01_R/PinkyFinger_02_R
+    localRotation: {x: 0.6910043, y: -0.45586306, z: 0.34430766, w: 0.44289383}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: PinkyFinger_03_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/PinkyFinger_01_R/PinkyFinger_02_R/PinkyFinger_03_R
+    localRotation: {x: -0.3900056, y: 0.7264199, z: -0.5304231, w: -0.19713366}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: PinkyFinger_04_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/PinkyFinger_01_R/PinkyFinger_02_R/PinkyFinger_03_R/PinkyFinger_04_R
+    localRotation: {x: -0.27882403, y: 0.77661616, z: -0.5517458, w: -0.12125149}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: RingFinger_01_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/RingFinger_01_R
+    localRotation: {x: -0.8583467, y: 0.115022704, z: -0.07213092, w: -0.4947812}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: RingFinger_02_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/RingFinger_01_R/RingFinger_02_R
+    localRotation: {x: 0.6946643, y: -0.55422807, z: 0.31427148, w: 0.33392596}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: RingFinger_03_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/RingFinger_01_R/RingFinger_02_R/RingFinger_03_R
+    localRotation: {x: -0.41118744, y: 0.7814093, z: -0.44583642, w: -0.14681613}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: RingFinger_04_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/RingFinger_01_R/RingFinger_02_R/RingFinger_03_R/RingFinger_04_R
+    localRotation: {x: -0.40899295, y: 0.7837379, z: -0.4441079, w: -0.14576904}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Thumb_01_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/Thumb_01_R
+    localRotation: {x: -0.58094054, y: 0.52567637, z: -0.30091754, w: -0.543711}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Thumb_02_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/Thumb_01_R/Thumb_02_R
+    localRotation: {x: 0.73391765, y: -0.38361812, z: 0.26428768, w: 0.494323}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Thumb_03_R
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Clavicle_R/Shoulder_R/Elbow_R/Hand_R/Thumb_01_R/Thumb_02_R/Thumb_03_R
+    localRotation: {x: -0.8059077, y: 0.30182606, z: -0.23165448, w: -0.45359778}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Neck
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Neck
+    localRotation: {x: 0.18416706, y: 0.26377258, z: -0.025044695, w: 0.9465092}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Head
+    bonePath: Hips/Spine_01/Spine_02/Spine_03/Neck/Head
+    localRotation: {x: -0.00000011920929, y: 0.0000002980232, z: 0.00000027939677, w: 1.0000002}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: UpperLeg_L
+    bonePath: Hips/UpperLeg_L
+    localRotation: {x: 0.075069666, y: 0.20980176, z: 0.96864283, w: 0.10990336}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: LowerLeg_L
+    bonePath: Hips/UpperLeg_L/LowerLeg_L
+    localRotation: {x: -0.04119266, y: -0.018776685, z: 0.9989734, w: -0.0016370248}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Ankle_L
+    bonePath: Hips/UpperLeg_L/LowerLeg_L/Ankle_L
+    localRotation: {x: -0.19255294, y: 0.43855062, z: 0.86026895, w: 0.17474015}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Ball_L
+    bonePath: Hips/UpperLeg_L/LowerLeg_L/Ankle_L/Ball_L
+    localRotation: {x: -0.17635438, y: 0.64185154, z: 0.7357625, w: 0.12481742}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: UpperLeg_R
+    bonePath: Hips/UpperLeg_R
+    localRotation: {x: 0.34862095, y: 0.07654017, z: 0.9296798, w: -0.09110822}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: LowerLeg_R
+    bonePath: Hips/UpperLeg_R/LowerLeg_R
+    localRotation: {x: 0.33824623, y: -0.22075287, z: 0.91344404, w: 0.049777552}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Ankle_R
+    bonePath: Hips/UpperLeg_R/LowerLeg_R/Ankle_R
+    localRotation: {x: 0.43888474, y: 0.3252135, z: 0.7646395, w: -0.3419695}
+    isPose: 0
+    resetBlendWeight: 1
+  - boneName: Ball_R
+    bonePath: Hips/UpperLeg_R/LowerLeg_R/Ankle_R/Ball_R
+    localRotation: {x: 0.38051292, y: 0.5270426, z: 0.65400517, w: -0.3869284}
+    isPose: 0
+    resetBlendWeight: 1

@@ -1,0 +1,9 @@
+fileFormatVersion: 2
+guid: 1677f7670fb2e1a40a6eb874448f9be2
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Scripts/Editor/BoneChainCreatorWindow.cs
+  uploadId: 822108

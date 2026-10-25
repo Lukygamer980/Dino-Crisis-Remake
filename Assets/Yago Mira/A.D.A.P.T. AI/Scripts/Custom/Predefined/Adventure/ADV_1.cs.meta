@@ -1,0 +1,18 @@
+fileFormatVersion: 2
+guid: 9c82f1bab5ff40c428c69fcc88cd68c7
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 241029
+  packageName: A.D.A.P.T. AI
+  packageVersion: 1.0.0
+  assetPath: Assets/Yago Mira/A.D.A.P.T. AI/Scripts/Custom/Predefined/Adventure/ADV_1.cs
+  uploadId: 555788

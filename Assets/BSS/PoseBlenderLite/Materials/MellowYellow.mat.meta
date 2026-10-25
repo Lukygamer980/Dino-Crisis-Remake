@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: d21a02c63ed158e4da37c3f781095e18
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 2100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Materials/MellowYellow.mat
+  uploadId: 822108

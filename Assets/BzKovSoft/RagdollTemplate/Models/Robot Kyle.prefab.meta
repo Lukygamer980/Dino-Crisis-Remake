@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 3314232fe58ae954d95689bfd6de24a3
+timeCreated: 1451465313
+licenseType: Store
+NativeFormatImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 38568
+  packageName: Ragdoll and Transition to Mecanim
+  packageVersion: 1.6
+  assetPath: Assets/BzKovSoft/RagdollTemplate/Models/Robot Kyle.prefab
+  uploadId: 169219

@@ -1,0 +1,11 @@
+fileFormatVersion: 2
+guid: a4c9ef78dd4343a489417b6cb7cefe05
+DefaultImporter:
+  userData: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 38568
+  packageName: Ragdoll and Transition to Mecanim
+  packageVersion: 1.6
+  assetPath: Assets/BzKovSoft/RagdollTemplate/SampleScenes/ragdollFull_CharacterController.unity
+  uploadId: 169219

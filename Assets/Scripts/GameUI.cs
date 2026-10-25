@@ -13,7 +13,7 @@ public class GameUI : MonoBehaviour
 
     const string ControlsHelp =
         "Mouse / right stick look   WASD / left stick move   Shift / Square run   E / Cross interact\n" +
-        "Hold right mouse / L2 to aim over the shoulder   Left mouse / J / R2 shoots, even on the move";
+        "Hold right mouse / L2 to aim over the shoulder   Left mouse / J / R2 shoots, even on the move   Esc releases the mouse";
 
     float fadeAlpha = 1f;
     float damageFlash;
@@ -22,6 +22,9 @@ public class GameUI : MonoBehaviour
     string prompt;
     string endTitle;
     Color endTint = Color.black;
+
+    // Set as soon as either ending starts, so a raptor bite can't replace the escape screen.
+    public bool Ending { get; private set; }
     GUIStyle centeredStyle;
     GUIStyle hudStyle;
 
@@ -50,9 +53,16 @@ public class GameUI : MonoBehaviour
 
     public void FlashDamage() => damageFlash = 0.5f;
 
-    public void GameOver() => StartCoroutine(ShowEndScreen("GAME OVER", new Color(0.35f, 0f, 0f)));
+    public void GameOver() => BeginEnding("GAME OVER", new Color(0.35f, 0f, 0f));
 
-    public void DemoComplete() => StartCoroutine(ShowEndScreen("ELEVATOR TO B1\nDEMO COMPLETE", Color.black));
+    public void DemoComplete() => BeginEnding("ELEVATOR TO B1\nDEMO COMPLETE", Color.black);
+
+    void BeginEnding(string title, Color tint)
+    {
+        if (Ending) return;
+        Ending = true;
+        StartCoroutine(ShowEndScreen(title, tint));
+    }
 
     IEnumerator ShowEndScreen(string title, Color tint)
     {

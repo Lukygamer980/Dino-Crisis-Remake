@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 1121a3a7eae00394daffaafe5811a6cf
+timeCreated: 1449739177
+licenseType: Store
+NativeFormatImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 38568
+  packageName: Ragdoll and Transition to Mecanim
+  packageVersion: 1.6
+  assetPath: Assets/BzKovSoft/RagdollTemplate/Animations/standing_up_from_belly.anim
+  uploadId: 169219

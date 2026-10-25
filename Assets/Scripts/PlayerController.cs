@@ -137,7 +137,7 @@ public class PlayerController : MonoBehaviour
     }
 
     // What the crosshair at the center of the screen points at: the raptor closest to it within
-    // the assist cone, otherwise whatever the view ray hits.
+    // the assist cone that the shot can actually reach, otherwise whatever the view ray hits.
     Vector3 AimPoint(Vector3 origin, float assistAngle)
     {
         if (viewCamera == null) return origin + transform.forward * shotRange;
@@ -150,7 +150,8 @@ public class PlayerController : MonoBehaviour
             Vector3 center = raptor.transform.position + Vector3.up * 0.9f;
             if (Vector3.Distance(center, origin) > shotRange) continue;
             float angle = Vector3.Angle(view.direction, center - view.origin);
-            if (angle < bestAngle)
+            // A wall between the chest and the raptor must not yank the shot or the body toward it.
+            if (angle < bestAngle && HasClearShot(origin, center))
             {
                 target = raptor;
                 bestAngle = angle;
@@ -167,16 +168,34 @@ public class PlayerController : MonoBehaviour
 
     void HideMuzzleFlash() => muzzleFlash.enabled = false;
 
+    // True when the shot from the chest reaches the point without hitting level geometry first.
+    bool HasClearShot(Vector3 origin, Vector3 point)
+    {
+        Vector3 toPoint = point - origin;
+        float distance = toPoint.magnitude;
+        if (distance < 0.01f) return true;
+        if (!Physics.Raycast(origin, toPoint / distance, out RaycastHit hit, distance, ~0, QueryTriggerInteraction.Ignore))
+            return true;
+        return hit.collider.GetComponentInParent<Raptor>() != null;
+    }
+
     void UpdateInteraction()
     {
+        // Third person: the body faces the last step, so the prompt follows where the camera looks.
+        Vector3 facing = viewCamera != null ? viewCamera.transform.forward : transform.forward;
+        facing.y = 0f;
+        if (facing.sqrMagnitude < 0.01f) facing = transform.forward;
+        else facing.Normalize();
+
         Interactable nearest = null;
-        float nearestDistance = 1.7f;
+        float nearestDistance = 2.4f;
         foreach (Interactable interactable in Interactable.All)
         {
             Vector3 toTarget = interactable.transform.position - transform.position;
             toTarget.y = 0f;
             float distance = toTarget.magnitude;
-            if (distance < nearestDistance && Vector3.Dot(transform.forward, toTarget.normalized) > 0.3f)
+            if (distance < 0.01f || distance >= nearestDistance) continue;
+            if (Vector3.Dot(facing, toTarget / distance) > 0.3f)
             {
                 nearest = interactable;
                 nearestDistance = distance;
@@ -189,7 +208,7 @@ public class PlayerController : MonoBehaviour
 
     public void TakeDamage(int amount, Vector3 fromPosition)
     {
-        if (IsDead) return;
+        if (IsDead || inputLocked || GameUI.Instance.Ending) return;
         Health = Mathf.Max(0, Health - amount);
         Vector3 away = transform.position - fromPosition;
         away.y = 0f;

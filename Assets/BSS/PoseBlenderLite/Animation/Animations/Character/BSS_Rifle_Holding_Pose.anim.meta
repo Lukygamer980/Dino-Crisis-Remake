@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 76169c4cd69b1cb4eb2f2be19786fd2d
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 7400000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Animation/Animations/Character/BSS_Rifle_Holding_Pose.anim
+  uploadId: 822108

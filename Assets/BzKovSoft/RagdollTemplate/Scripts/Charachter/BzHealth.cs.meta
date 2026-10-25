@@ -1,0 +1,19 @@
+fileFormatVersion: 2
+guid: 63443b1fc8f741f4886a40b43b2b4151
+timeCreated: 1426227835
+licenseType: Store
+MonoImporter:
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 38568
+  packageName: Ragdoll and Transition to Mecanim
+  packageVersion: 1.6
+  assetPath: Assets/BzKovSoft/RagdollTemplate/Scripts/Charachter/BzHealth.cs
+  uploadId: 169219

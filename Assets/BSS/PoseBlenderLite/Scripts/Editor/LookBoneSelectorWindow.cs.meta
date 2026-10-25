@@ -1,0 +1,9 @@
+fileFormatVersion: 2
+guid: 4a9ee6256c54d3d4286ae930b2598989
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Scripts/Editor/LookBoneSelectorWindow.cs
+  uploadId: 822108

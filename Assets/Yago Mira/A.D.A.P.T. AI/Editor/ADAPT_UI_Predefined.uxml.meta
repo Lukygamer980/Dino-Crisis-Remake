@@ -1,0 +1,17 @@
+fileFormatVersion: 2
+guid: 4a7904d9cb37fcb4391aec10629fd051
+ScriptedImporter:
+  internalIDToNameTable: []
+  externalObjects: {}
+  serializedVersion: 2
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+  script: {fileID: 13804, guid: 0000000000000000e000000000000000, type: 0}
+AssetOrigin:
+  serializedVersion: 1
+  productId: 241029
+  packageName: A.D.A.P.T. AI
+  packageVersion: 1.0.0
+  assetPath: Assets/Yago Mira/A.D.A.P.T. AI/Editor/ADAPT_UI_Predefined.uxml
+  uploadId: 555788

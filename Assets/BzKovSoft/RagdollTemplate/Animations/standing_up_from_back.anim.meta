@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: f79b84d2025bae64b98735b45efb2331
+timeCreated: 1449670868
+licenseType: Store
+NativeFormatImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 38568
+  packageName: Ragdoll and Transition to Mecanim
+  packageVersion: 1.6
+  assetPath: Assets/BzKovSoft/RagdollTemplate/Animations/standing_up_from_back.anim
+  uploadId: 169219

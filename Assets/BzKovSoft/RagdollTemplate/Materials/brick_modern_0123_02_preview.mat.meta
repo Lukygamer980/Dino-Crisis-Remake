@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: d758d6b54a2f95543b9d7221d9a335eb
+timeCreated: 1425575018
+licenseType: Store
+NativeFormatImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 38568
+  packageName: Ragdoll and Transition to Mecanim
+  packageVersion: 1.6
+  assetPath: Assets/BzKovSoft/RagdollTemplate/Materials/brick_modern_0123_02_preview.mat
+  uploadId: 169219
