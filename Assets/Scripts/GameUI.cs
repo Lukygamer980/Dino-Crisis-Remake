@@ -11,8 +11,8 @@ public class GameUI : MonoBehaviour
     public PlayerController player;
 
     const string ControlsHelp =
-        "W/S move   A/D turn   Shift run   Q quick turn\n" +
-        "Hold right mouse (or K) to aim, left mouse (or J/Space) to shoot   E interact";
+        "WASD move   Shift run   E interact\n" +
+        "Hold right mouse to aim at the cursor (K locks on)   Left mouse / J / Space shoots, even on the move";
 
     float fadeAlpha = 1f;
     float damageFlash;

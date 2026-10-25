@@ -5546,15 +5546,16 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PlayerController
   walkSpeed: 2.2
   runSpeed: 4.4
-  backwardSpeed: 1.4
-  turnSpeed: 170
-  quickTurnDuration: 0.3
+  aimMoveSpeed: 1.6
+  rotationSpeed: 720
+  basisRefreshAngle: 60
   maxHealth: 100
   ammo: 15
   shotDamage: 1
   shotRange: 15
   shotCooldown: 0.6
   autoAimAngle: 70
+  mouseAimAssistAngle: 12
   gunModel: {fileID: 1958704644}
   gunPoint: {fileID: 852135412}
   muzzleFlash: {fileID: 852135411}
