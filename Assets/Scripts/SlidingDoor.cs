@@ -4,8 +4,9 @@ using UnityEngine.AI;
 // A double sliding door in a doorway between two rooms. Its halves slide apart into the wall
 // whenever the player or a raptor comes close, and close again once nobody is near. Local +Z
 // points into the front room. A locked door opens only for a player carrying the required item,
-// and a powered one (such as a laser shutter) only once its generator runs. A door that keeps
-// raptors out, like the save room's, never opens for them.
+// and a powered one (such as a laser shutter) only once its switch is on. A one-way door starts
+// locked and is unlocked by walking up to it from its unlocking side. A door that keeps raptors
+// out, like the save room's, never opens for them.
 // The panels are left out of the NavMesh bake; only a door raptors can't get through carves the
 // doorway out of it, so they path through doors they can open and around ones they can't.
 // Opening makes enough noise that a raptor nearby comes to look.
@@ -30,7 +31,9 @@ public class SlidingDoor : MonoBehaviour
     public string lockedMessage = "It's locked.";
     // Walking out through the back of this door finishes the demo.
     public bool endsDemo;
-    public GeneratorSwitch powerSource;
+    public PowerSwitch powerSource;
+    // 1 or -1: a one-way door, unlocked from the front (+Z) or the back. 0 for a normal door.
+    public int unlocksFromSide;
     public bool keepsRaptorsOut;
 
     PlayerController player;
@@ -40,6 +43,7 @@ public class SlidingDoor : MonoBehaviour
     int playerSide;
     bool playerWasNear;
     bool wasOpening;
+    bool unlockedFromSide;
     bool finished;
 
     void Start()
@@ -47,13 +51,20 @@ public class SlidingDoor : MonoBehaviour
         player = FindAnyObjectByType<PlayerController>();
         leftClosed = leftPanel.localPosition;
         rightClosed = rightPanel.localPosition;
-        playerSide = transform.InverseTransformPoint(player.transform.position).z >= 0f ? 1 : -1;
+        playerSide = SideOf(player.transform.position);
     }
 
     void Update()
     {
-        bool locked = (requiredItem != "" && !player.HasItem(requiredItem)) || (powerSource != null && !powerSource.IsOn);
         bool playerNear = !player.IsDead && IsNear(player.transform.position);
+        if (unlocksFromSide != 0 && !unlockedFromSide && playerNear && SideOf(player.transform.position) == unlocksFromSide)
+        {
+            unlockedFromSide = true;
+            GameUI.Instance.ShowMessage("You unlock the door from this side.");
+        }
+        bool locked = (requiredItem != "" && !player.HasItem(requiredItem))
+            || (powerSource != null && !powerSource.IsOn)
+            || (unlocksFromSide != 0 && !unlockedFromSide);
         if (locked && playerNear && !playerWasNear) GameUI.Instance.ShowMessage(lockedMessage);
         playerWasNear = playerNear;
 
@@ -68,6 +79,8 @@ public class SlidingDoor : MonoBehaviour
 
         TrackPlayerSide();
     }
+
+    int SideOf(Vector3 position) => transform.InverseTransformPoint(position).z >= 0f ? 1 : -1;
 
     bool IsNear(Vector3 position)
     {

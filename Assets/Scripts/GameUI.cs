@@ -21,6 +21,7 @@ public class GameUI : MonoBehaviour
     float messageHideTime;
     string prompt;
     string endTitle;
+    string goalText;
     Color endTint = Color.black;
 
     // Set as soon as either ending starts, so a raptor bite can't replace the escape screen.
@@ -52,6 +53,13 @@ public class GameUI : MonoBehaviour
     public void SetPrompt(string text) => prompt = text;
 
     public void FlashDamage() => damageFlash = 0.5f;
+
+    // The prototype's goal: the message stays on screen, and the game carries on.
+    public void ReachGoal(string text)
+    {
+        goalText = text;
+        ShowMessage(text, 6f);
+    }
 
     public void GameOver() => BeginEnding("GAME OVER", new Color(0.35f, 0f, 0f));
 
@@ -118,6 +126,12 @@ public class GameUI : MonoBehaviour
         if (player.IsAiming) DrawCrosshair(width / 2f, height / 2f);
         if (prompt != null) GUI.Label(new Rect(0f, height - 130f, width, 30f), prompt, centeredStyle);
         if (message != null && Time.time < messageHideTime) GUI.Label(new Rect(0f, height * 0.72f, width, 60f), message, centeredStyle);
+        if (goalText != null)
+        {
+            GUI.color = new Color(1f, 0.85f, 0.4f);
+            GUI.Label(new Rect(0f, 60f, width, 30f), "END OF THE 1F PROTOTYPE: THE GAME DOESN'T CONTINUE YET", centeredStyle);
+            GUI.color = Color.white;
+        }
         if (Time.timeSinceLevelLoad < 12f)
         {
             centeredStyle.fontSize = 15;

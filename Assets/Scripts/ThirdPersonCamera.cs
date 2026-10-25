@@ -128,7 +128,7 @@ public class ThirdPersonCamera : MonoBehaviour
         foreach (Renderer part in playerRenderers) part.enabled = visible;
     }
 
-    void SnapBehindPlayer()
+    public void SnapBehindPlayer()
     {
         yaw = player.transform.eulerAngles.y;
         pitch = defaultPitch;

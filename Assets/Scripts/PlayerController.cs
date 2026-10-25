@@ -223,6 +223,17 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    // Moves the player somewhere else at once, as through a duct. The CharacterController has to be
+    // off for that, or it puts the player back.
+    public void Teleport(Vector3 position, Quaternion rotation)
+    {
+        controller.enabled = false;
+        transform.SetPositionAndRotation(position, rotation);
+        controller.enabled = true;
+        knockback = Vector3.zero;
+        verticalVelocity = 0f;
+    }
+
     public void Heal(int amount) => Health = Mathf.Min(maxHealth, Health + amount);
 
     public void AddItem(string item) => items.Add(item);

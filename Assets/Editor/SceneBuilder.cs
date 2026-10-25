@@ -11,19 +11,25 @@ using UnityEngine.Rendering;
 // "Dino Demo > Build Demo Scene" again to regenerate the scene from scratch; manual
 // edits made to the generated scene are lost on the next build.
 //
-// The level is the first floor of a research facility: fenced yards outside where the player
-// starts, a passage round the south side to a backup generator, and the building itself with
-// its offices, entrance hall, lecture room and west wing.
+// The level follows the room layout of the original game's Facility 1F (the official guide
+// book's floor map, at about 10 cm per map pixel): the backyards outside where the player
+// starts, the passage round to the backup generator, and the building with the offices, the
+// main entrance, the elevator hall, the lecture room and the west wing. Two piping ducts link
+// vents in different rooms; they are built off to the side, away from the floor.
 //
 // Every room is one or more floor rectangles in world coordinates (x east, z north, in meters),
 // and the room objects sit at the origin, so everything is placed in those same coordinates.
 // Walls are worked out from the rectangles: wherever two different rooms, or a room and the
-// outside, meet, a wall goes up, with a gap wherever a door was placed.
+// outside, meet, a wall goes up, with a gap wherever a door was placed. Corridors that run into
+// each other on the map are marked open, so no wall goes between them.
 //
-// The lock flow: the generator key in Material Storage opens the passage to the generator, and
-// switching the generator on powers the doors into the building. The military ID in the Control
-// Room opens the Strategy Room, its code disk opens the Elevator Hall, and the researcher ID in
-// the Lecture Room works the elevator, which ends the demo.
+// The lock flow: the Backup Power Area key in Material Storage opens the gate to the generator
+// passage, and switching the generator on powers the door into the building. The Office
+// Hallway's laser shutter blocks the way on, so the player goes through the duct to the west
+// wing. The Management Office (the safe room) has the console that releases the laser shutters
+// and the entrance key; the entrance key opens the plaza in front of the Main Entrance, where the
+// code disk N lies; the disk opens the Elevator Hall. The elevator down to B1 is the goal: the
+// prototype says there that the game doesn't continue yet.
 //
 // The raptors walk a NavMesh baked from the level's colliders at the end of the build. Characters,
 // ceilings and door panels are kept out of the bake, so doorways stay walkable.
@@ -50,18 +56,24 @@ public static class SceneBuilder
     }
 
     static readonly List<Room> rooms = new();
+    // Pairs of rooms that meet without a wall, like corridors running into each other.
+    static readonly List<(Room, Room)> openings = new();
     // Each doorway: whether its wall runs along X, the wall line's coordinate, and the gap's middle along it.
     static readonly List<(bool alongX, float line, float center)> doorways = new();
     static readonly List<Light> poweredLights = new();
     static readonly List<GameObject> ambushRaptors = new();
-    static GeneratorSwitch generator;
+    static PowerSwitch generator, laserConsole;
 
-    static Room backyardFront, backyard, storage, passage, generatorRoom;
-    static Room officeHallway, office, entrance, frontArea, elevatorHall, elevator;
-    static Room lectureHallway, lectureRoom;
-    static Room managementHallway, lockerRoom, managementOffice, westHallway, toilet, strategyRoom, controlRoom, controlHallway;
+    // Room numbers from the guide book's map.
+    static Room backyardFront, backyard, storage, passage, generatorRoom;                       // 1-3, 1-1, 1-2, 1-4, 1-5
+    static Room officeHallway, officeHallwayEnd, office;                                         // 1-6, 1-20
+    static Room entrance, entrancePlaza, elevatorHall;                                           // 1-13, 1-14, 1-15
+    static Room lectureHallway, lectureRoom;                                                     // 1-16, 1-19
+    static Room managementHallway, managementHallwayEnd, managementVestibule, lockerRoom, toilet; // 1-11, 1-12, 1-18
+    static Room managementOffice, strategyRoom, controlHall, controlHallEnd, controlRoom;        // 1-10, 1-21, 1-8, 1-9
+    static Room ductA, ductB;                                                                    // 1-7, 1-17
 
-    static Material concrete, ground, wall, fence, ceiling, metal, crate, door, laser, tile, suit, skin, hair, gunMetal;
+    static Material concrete, ground, wall, fence, ceiling, metal, crate, door, laser, tile, duct, suit, skin, hair, gunMetal;
     static Material raptorSkin, raptorDark, raptorEyes, blood, screenGlow, lockSign, doorSign, hazard;
     static Material ammoBox, medPak, keyCard, militaryCard, codeDisk, brassKey;
 
@@ -72,20 +84,23 @@ public static class SceneBuilder
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         SetUpAtmosphere();
         rooms.Clear();
+        openings.Clear();
         doorways.Clear();
         poweredLights.Clear();
         ambushRaptors.Clear();
 
         LayOutRooms();
-        PlayerController player = BuildPlayer(new Vector3(36f, 0f, -4f), 0f);
+        PlayerController player = BuildPlayer(new Vector3(39.5f, 0f, -3f), 0f);
 
-        // The generator area comes first: doors elsewhere take their power from it.
+        // The generator and the laser console come first: doors elsewhere take their power from them.
         BuildGeneratorArea();
+        BuildManagementOffice();
         BuildBackyard();
         BuildOfficeWing();
         BuildEntrance();
         BuildLectureWing();
         BuildWestWing();
+        BuildDucts();
         generator.poweredLights = poweredLights.ToArray();
         generator.ambushRaptors = ambushRaptors.ToArray();
 
@@ -102,304 +117,388 @@ public static class SceneBuilder
     // ---------- Layout ----------
 
     // Rectangles are x0, z0, x1, z1. Rooms touch along shared edges; a door between two rooms
-    // has to sit on such an edge, at least a meter from its ends so the halves have wall to slide into.
+    // has to sit on such an edge, about a meter from its ends so the halves have wall to slide into.
+    // A room split by a laser shutter or a metal shutter is two rooms of the same name.
     static void LayOutRooms()
     {
-        // Outside.
-        backyardFront = AddRoom("Backyard Front", true, (28f, -8f, 44f, 4f));
-        backyard = AddRoom("Facility Backyard", true, (20f, 4f, 44f, 22f));
-        // U-shaped: south from the backyard's west end, west along the bottom of the map, then
-        // north to the generator room.
-        passage = AddRoom("Generator Passage", true, (14f, 0f, 20f, 10f), (-36f, -7f, 28f, 0f), (-36f, 0f, -30f, 18f));
-        frontArea = AddRoom("Entrance Front Area", true, (-8f, 44f, 0f, 50f));
+        // Outside, on the east and south.
+        backyardFront = AddRoom("Backyard Front", true, (35f, -6.5f, 44f, 0f));
+        backyard = AddRoom("Facility Backyard", true, (20f, 9f, 33f, 14.5f), (28f, 6f, 33f, 9f), (28f, 0f, 44f, 6f), (41f, 6f, 44f, 14.5f));
+        // From the backyard south and west round the lecture room, then a U down and back up to the generator room.
+        passage = AddRoom("Generator Passage", true, (20f, 0f, 28f, 9f), (20f, -6.5f, 35f, 0f), (20f, -26.5f, 23f, -6.5f),
+            (5f, -30f, 23f, -26.5f), (5f, -34f, 13f, -30f), (5f, -26.5f, 7.5f, -9f));
+        // In front of the main entrance, wrapping round its north side.
+        entrancePlaza = AddRoom("Entrance Plaza", true, (-2.5f, 40f, 29f, 46.5f), (-2.5f, 35f, 23f, 40f), (-2.5f, 31f, 0f, 35f), (20f, 31f, 23f, 35f));
 
-        // The building.
-        storage = AddRoom("Material Storage", false, (32f, 22f, 39f, 28f));
-        generatorRoom = AddRoom("Backup Generator Room", false, (-37f, 18f, -29f, 26f));
-        // L-shaped: along the top of the office and down its east side to the backyard.
-        officeHallway = AddRoom("Office Hallway", false, (4f, 36f, 24f, 39.5f), (20f, 22f, 24f, 36f));
-        office = AddRoom("Office", false, (4f, 22f, 20f, 36f));
-        entrance = AddRoom("Main Entrance", false, (-12f, 28f, 4f, 44f));
-        elevatorHall = AddRoom("Elevator Hall", false, (-8f, 16f, 0f, 28f));
-        elevator = AddRoom("Elevator", false, (-11f, 20f, -8f, 23f));
-        // Wraps below the elevator hall and up its east side to the office.
-        lectureHallway = AddRoom("Lecture Room Hallway", false, (-12f, 12f, 4f, 16f), (0f, 16f, 4f, 28f));
-        lectureRoom = AddRoom("Lecture Room", false, (-10f, 0f, 4f, 12f));
-        managementHallway = AddRoom("Management Office Hallway", false, (-28f, 40f, -12f, 44f));
-        lockerRoom = AddRoom("Locker Room", false, (-26f, 44f, -18f, 50f));
-        managementOffice = AddRoom("Management Office", false, (-26f, 30f, -16f, 40f));
-        westHallway = AddRoom("West Hallway", false, (-16f, 4f, -12f, 40f));
-        toilet = AddRoom("Toilet", false, (-22f, 24f, -16f, 30f));
-        strategyRoom = AddRoom("Strategy Room", false, (-28f, 14f, -16f, 24f));
-        controlRoom = AddRoom("Control Room", false, (-28f, 4f, -16f, 14f));
-        controlHallway = AddRoom("Control Room Hallway", false, (-28f, 0f, -12f, 4f));
+        // East side of the building.
+        storage = AddRoom("Material Storage", false, (33f, 6f, 41f, 14.5f));
+        generatorRoom = AddRoom("Backup Generator Room", false, (0f, -9f, 7.5f, 0f));
+        office = AddRoom("Office", false, (20f, 14.5f, 41f, 27.5f));
+        // Along the top of the office and down its east side to the backyard; the short end by the
+        // main entrance is behind a laser shutter.
+        officeHallway = AddRoom("Office Hallway", false, (23f, 27.5f, 44f, 31f), (41f, 14.5f, 44f, 27.5f));
+        officeHallwayEnd = AddRoom("Office Hallway", false, (20f, 27.5f, 23f, 31f));
+
+        // The middle.
+        entrance = AddRoom("Main Entrance", false, (0f, 24f, 20f, 35f));
+        // The elevator stands in the alcove on the south side.
+        elevatorHall = AddRoom("Elevator Hall", false, (0f, 17f, 18f, 24f), (5.5f, 14.5f, 18f, 17f));
+        // Up the east side of the elevator hall, along below it, and down the west side of the lecture room.
+        lectureHallway = AddRoom("Lecture Room Hallway", false, (18f, 12.5f, 20f, 24f), (0f, 12.5f, 18f, 14.5f), (0f, 14.5f, 5.5f, 17f), (0f, 0f, 2f, 12.5f));
+        lectureRoom = AddRoom("Lecture Room", false, (2f, 0f, 20f, 12.5f));
+
+        // The west wing. The management office hallway runs along the top and down past the
+        // locker room; laser shutters close off its end by the entrance and the bit by the toilet.
+        managementHallway = AddRoom("Management Office Hallway", false, (-15.5f, 27.5f, -3.5f, 31f), (-15.5f, 24f, -11.5f, 27.5f));
+        managementHallwayEnd = AddRoom("Management Office Hallway", false, (-3.5f, 27.5f, 0f, 31f));
+        managementVestibule = AddRoom("Management Office Hallway", false, (-15.5f, 19.5f, -11.5f, 24f));
+        lockerRoom = AddRoom("Locker Room", false, (-22f, 23.5f, -15.5f, 31f));
+        toilet = AddRoom("Toilet", false, (-22f, 18.5f, -15.5f, 23.5f));
+        managementOffice = AddRoom("Management Office", false, (-11.5f, 19.5f, 0f, 27.5f));
+        strategyRoom = AddRoom("Strategy Room", false, (-15.5f, 11.5f, -3f, 19.5f));
+        // From the management office's back door down, along the top of the control room and down
+        // its west side to a metal shutter, with the stairs down to B1 behind it.
+        controlHall = AddRoom("Control Room Hall", false, (-15.5f, 9f, 0f, 11.5f), (-3f, 11.5f, 0f, 19.5f), (-15.5f, 3.8f, -13f, 9f));
+        controlHallEnd = AddRoom("Control Room Hall", false, (-15.5f, -4f, -13f, 3.8f), (-13f, -4f, -6f, 0f));
+        controlRoom = AddRoom("Control Room", false, (-11.5f, 0f, 0f, 9f));
+        Open(controlHall, lectureHallway);
+
+        // The piping ducts, off to the southwest. A links the Office Hallway, the Control Room
+        // Hall and the end of the Management Office Hallway; B links the toilet and the Lecture
+        // Room Hallway.
+        ductA = AddRoom("Piping Passage A", false, (-48f, -36f, -24f, -34f), (-48f, -34f, -46f, -26f), (-26f, -34f, -24f, -26f), (-38f, -38f, -36f, -36f));
+        ductB = AddRoom("Piping Passage B", false, (-48f, -22f, -28f, -20f), (-48f, -20f, -46f, -12f), (-30f, -20f, -28f, -12f));
     }
 
     // ---------- Areas ----------
 
-    // The passage round the south of the facility and the backup generator at its end. Both gates
-    // into the passage take the generator key, and turning the generator on wakes a raptor out here.
+    // 1-4 and 1-5: the passage round the south of the facility to the backup generator. Its gate
+    // from the Backyard Front takes the Backup Power Area key; the gate from the backyard takes a
+    // key from the lecture room. Turning the generator on powers the building and wakes a raptor
+    // in the backyard.
     static void BuildGeneratorArea()
     {
         Transform room = generatorRoom.root;
-        Box("Generator", room, new Vector3(-33f, 1f, 24f), new Vector3(4f, 2f, 2f), metal);
-        Box("Hazard Stripe", room, new Vector3(-33f, 0.15f, 22.98f), new Vector3(4f, 0.3f, 0.02f), hazard, collider: false);
-        Box("Fuel Tank", room, new Vector3(-36.2f, 0.7f, 19.2f), new Vector3(1f, 1.4f, 1f), metal);
-        Box("Cable", room, new Vector3(-31f, 0.03f, 21f), new Vector3(0.12f, 0.06f, 4f), gunMetal, collider: false);
-        Box("Shelf", room, new Vector3(-29.6f, 0.5f, 20.5f), new Vector3(0.6f, 1f, 1.6f), metal);
-        BuildPickup(room, Pickup.Kind.MedPak, new Vector3(-29.6f, 1.09f, 20.5f), 50);
+        Box("Generator", room, new Vector3(3f, 1f, -4f), new Vector3(4f, 2f, 2f), metal);
+        Box("Hazard Stripe", room, new Vector3(3f, 0.15f, -5.02f), new Vector3(4f, 0.3f, 0.02f), hazard, collider: false);
+        Box("Fuel Tank", room, new Vector3(6.6f, 0.7f, -0.9f), new Vector3(1f, 1.4f, 1f), metal);
+        Box("Cable", room, new Vector3(5.5f, 0.03f, -4f), new Vector3(0.12f, 0.06f, 3f), gunMetal, collider: false);
+        Box("Shelf", room, new Vector3(0.4f, 0.5f, -7.5f), new Vector3(0.6f, 1f, 1.6f), metal);
+        BuildPickup(room, Pickup.Kind.MedPak, new Vector3(0.4f, 1.09f, -7.5f), 50);
 
-        GameObject panel = Box("Generator Switch", room, new Vector3(-33f, 1.1f, 22.95f), new Vector3(0.6f, 0.5f, 0.1f), gunMetal, collider: false);
-        generator = panel.AddComponent<GeneratorSwitch>();
-        generator.statusLamp = Box("Status Lamp", room, new Vector3(-32.5f, 2.1f, 23f), Vector3.one * 0.15f, lockSign, collider: false).GetComponent<Renderer>();
+        GameObject panel = Box("Generator Switch", room, new Vector3(3f, 1.1f, -5.05f), new Vector3(0.6f, 0.5f, 0.1f), gunMetal, collider: false);
+        generator = panel.AddComponent<PowerSwitch>();
+        generator.prompt = "Switch on the generator";
+        generator.message = "The generator rumbles to life. Power is back in the building.";
+        generator.statusLamp = Box("Status Lamp", room, new Vector3(3.6f, 2.1f, -5f), Vector3.one * 0.15f, lockSign, collider: false).GetComponent<Renderer>();
         generator.runningMaterial = doorSign;
 
         // A dim emergency light to find the switch by; the main light needs the power on.
-        PointLight(room, new Vector3(-33f, 2.9f, 20f), new Color(1f, 0.15f, 0.1f), 0.8f, 6f, flicker: false, shadows: false);
-        Powered(PointLight(room, new Vector3(-33f, 2.9f, 22f), new Color(1f, 0.9f, 0.75f), 1.6f, 9f, flicker: false, shadows: true));
+        PointLight(room, new Vector3(5.5f, 2.9f, -7f), new Color(1f, 0.15f, 0.1f), 0.8f, 6f, flicker: false, shadows: false);
+        Powered(PointLight(room, new Vector3(3f, 2.9f, -6.5f), new Color(1f, 0.9f, 0.75f), 1.6f, 9f, flicker: false, shadows: true));
 
         room = passage.root;
-        Box("Crate", room, new Vector3(15.2f, 0.6f, 2f), Vector3.one * 1.2f, crate);
-        Box("Crate", room, new Vector3(15.3f, 0.5f, 3.3f), Vector3.one * 1f, crate);
-        Box("Crate Stack", room, new Vector3(8f, 0.6f, -6f), new Vector3(2.4f, 1.2f, 1.2f), crate);
-        Barrel(room, 26f, -6.2f);
-        Barrel(room, -5f, -6.3f);
-        Barrel(room, -5.7f, -6.1f);
-        Barrel(room, -35.2f, 10f);
-        Box("Blood", room, new Vector3(-12f, 0.01f, -3f), new Vector3(1.4f, 0.02f, 0.9f), blood, collider: false);
-        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(-20f, 0.1f, -6.2f), 10);
+        Box("Crate", room, new Vector3(27f, 0.6f, 7.8f), Vector3.one * 1.2f, crate);
+        Box("Crate", room, new Vector3(27.1f, 0.5f, 6.6f), Vector3.one * 1f, crate);
+        Box("Crate Stack", room, new Vector3(10f, 0.6f, -29.3f), new Vector3(2.4f, 1.2f, 1.2f), crate);
+        Barrel(room, 34.4f, -6f);
+        Barrel(room, 21f, -15f);
+        Barrel(room, 12.4f, -33.4f);
+        Box("Blood", room, new Vector3(21.5f, 0.01f, -10f), new Vector3(0.9f, 0.02f, 1.4f), blood, collider: false);
+        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(6f, 0.1f, -33.4f), 10);
 
-        Floodlight(room, new Vector3(17f, 0f, -5.5f), flicker: false);
-        Floodlight(room, new Vector3(0f, 0f, -1f), flicker: true);
-        Floodlight(room, new Vector3(-18f, 0f, -6.5f), flicker: false);
-        Floodlight(room, new Vector3(-33f, 0f, 3f), flicker: true);
-        Floodlight(room, new Vector3(-33f, 0f, 15f), flicker: false);
+        Floodlight(room, new Vector3(27.5f, 0f, -6f), flicker: false);
+        Floodlight(room, new Vector3(22.6f, 0f, -16f), flicker: true);
+        Floodlight(room, new Vector3(14f, 0f, -26.9f), flicker: false);
+        Floodlight(room, new Vector3(7.2f, 0f, -18f), flicker: true);
+        Floodlight(room, new Vector3(20.5f, 0f, 4f), flicker: false);
 
-        BuildRaptor(passage, new Vector3(-33f, 0f, 6f), 0f, ambush: true,
-            new Vector3(-33f, 0f, 6f), new Vector3(-33f, 0f, 15f), new Vector3(-15f, 0f, -3.5f), new Vector3(5f, 0f, -3.5f));
-
-        const string gateMessage = "Locked. A sign reads: BACKUP GENERATOR AREA.";
-        Locked(Door(20f, 7f, lockSign), "GeneratorKey", gateMessage);
-        Locked(Door(28f, -3.5f, lockSign), "GeneratorKey", gateMessage);
-        Door(-33f, 18f);
+        Door(6.25f, -9f);
     }
 
-    // The yards where the demo starts, and the storage room with the generator key.
+    // 1-10: the safe room. No raptor gets in; it has the console that releases the laser shutters
+    // and the entrance key.
+    static void BuildManagementOffice()
+    {
+        Transform room = managementOffice.root;
+        Box("Desk", room, new Vector3(-7f, 0.45f, 23.5f), new Vector3(3f, 0.9f, 1.2f), metal);
+        Box("Sofa", room, new Vector3(-10.9f, 0.35f, 26f), new Vector3(1f, 0.7f, 2.4f), suit);
+        BuildItem(room, "EntranceKey", "entrance key", "It opens the front doors of the Main Entrance.", new Vector3(-8f, 0.93f, 23.5f), brassKey);
+        BuildPickup(room, Pickup.Kind.MedPak, new Vector3(-6f, 0.99f, 23.5f), 50);
+        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(-10.8f, 0.1f, 20.2f), 10);
+
+        GameObject console = Box("Security Console", room, new Vector3(-11.1f, 0.6f, 22f), new Vector3(0.6f, 1.2f, 1.4f), screenGlow);
+        laserConsole = console.AddComponent<PowerSwitch>();
+        laserConsole.prompt = "Release the laser shutters";
+        laserConsole.message = "The laser shutters on this floor switch off.";
+        laserConsole.noiseRadius = 0f;
+
+        GameObject terminal = Box("Terminal", room, new Vector3(-0.45f, 0.6f, 25.5f), new Vector3(0.6f, 1.2f, 0.8f), screenGlow);
+        Examinable(terminal, "SECURE ROOM: the doors here only open for staff. Nothing else gets in.");
+        PointLight(room, new Vector3(-5.75f, 2.9f, 23.5f), new Color(1f, 0.85f, 0.6f), 1.3f, 8f, flicker: false, shadows: false);
+
+        Door(-5.5f, 27.5f).keepsRaptorsOut = true;
+        Door(-1.5f, 19.5f).keepsRaptorsOut = true;
+    }
+
+    // 1-1, 1-2 and 1-3: the yards where the demo starts, and the storage room with the key to the
+    // generator passage.
     static void BuildBackyard()
     {
         Transform room = backyardFront.root;
-        Barrel(room, 30f, -7.2f);
-        Barrel(room, 30.7f, -7.3f);
-        Barrel(room, 43.2f, 2.6f);
-        Box("Crate", room, new Vector3(42.6f, 0.6f, -6.6f), Vector3.one * 1.2f, crate);
-        Floodlight(room, new Vector3(40f, 0f, -7.3f), flicker: false);
-        Floodlight(room, new Vector3(30f, 0f, 2.5f), flicker: true);
+        Barrel(room, 36f, -6f);
+        Barrel(room, 36.7f, -6.1f);
+        Box("Crate", room, new Vector3(36f, 0.6f, -0.9f), Vector3.one * 1.2f, crate);
+        Floodlight(room, new Vector3(39.5f, 0f, -6.2f), flicker: false);
+        Floodlight(room, new Vector3(43.5f, 0f, -2f), flicker: true);
 
         room = backyard.root;
-        Box("Container", room, new Vector3(38f, 1.3f, 10f), new Vector3(2.5f, 2.6f, 6f), metal);
-        Box("Crate", room, new Vector3(26f, 0.6f, 14f), Vector3.one * 1.2f, crate);
-        Box("Crate", room, new Vector3(27.3f, 0.5f, 13.4f), Vector3.one * 1f, crate);
-        Box("Crate Stack", room, new Vector3(31f, 0.6f, 18f), new Vector3(1.2f, 1.2f, 2.4f), crate);
-        Barrel(room, 43.2f, 21.2f);
-        Barrel(room, 42.5f, 21.3f);
-        Box("Blood Trail", room, new Vector3(22.5f, 0.01f, 19f), new Vector3(0.3f, 0.02f, 4f), blood, collider: false);
-        BuildPickup(room, Pickup.Kind.MedPak, new Vector3(26f, 1.29f, 14f), 50);
-        Floodlight(room, new Vector3(24f, 0f, 20.5f), flicker: true);
-        Floodlight(room, new Vector3(34f, 0f, 5.5f), flicker: false);
-        Floodlight(room, new Vector3(43f, 0f, 16f), flicker: false);
+        Box("Crate", room, new Vector3(31.8f, 0.6f, 13.4f), Vector3.one * 1.2f, crate);
+        Box("Crate", room, new Vector3(30.6f, 0.5f, 13.6f), Vector3.one * 1f, crate);
+        Box("Crate Stack", room, new Vector3(31f, 0.6f, 1f), new Vector3(2.4f, 1.2f, 1.2f), crate);
+        Barrel(room, 43.3f, 7f);
+        Barrel(room, 43.3f, 7.7f);
+        Box("Blood Trail", room, new Vector3(26f, 0.01f, 11.5f), new Vector3(4f, 0.02f, 0.3f), blood, collider: false);
+        BuildPickup(room, Pickup.Kind.MedPak, new Vector3(31.8f, 1.29f, 13.4f), 50);
+        Floodlight(room, new Vector3(20.6f, 0f, 13.8f), flicker: true);
+        Floodlight(room, new Vector3(36f, 0f, 5.4f), flicker: false);
+        Floodlight(room, new Vector3(43.4f, 0f, 13.8f), flicker: false);
 
         // Waits for the way back: it only shows up once the generator is on.
-        BuildRaptor(backyard, new Vector3(40f, 0f, 19f), 200f, ambush: true,
-            new Vector3(40f, 0f, 19f), new Vector3(25f, 0f, 17f), new Vector3(26f, 0f, 7f), new Vector3(41f, 0f, 6f));
+        BuildRaptor(backyard, new Vector3(24f, 0f, 11.75f), 90f, ambush: true,
+            new Vector3(24f, 0f, 11.75f), new Vector3(30.5f, 0f, 7.5f), new Vector3(38f, 0f, 3f), new Vector3(42.5f, 0f, 10f));
 
         room = storage.root;
-        Box("Shelving", room, new Vector3(32.6f, 1.2f, 25f), new Vector3(0.8f, 2.4f, 4.5f), metal);
-        Box("Shelving", room, new Vector3(38.4f, 1.2f, 25f), new Vector3(0.8f, 2.4f, 4.5f), metal);
-        Box("Crate", room, new Vector3(35.5f, 0.5f, 27.2f), Vector3.one * 1f, crate);
-        Box("Table", room, new Vector3(35.5f, 0.4f, 25.8f), new Vector3(1.4f, 0.8f, 0.8f), crate);
-        BuildItem(room, "GeneratorKey", "Generator Area key", "It opens the gates to the generator passage.", new Vector3(35.5f, 0.84f, 25.8f), brassKey);
-        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(34f, 0.1f, 27.3f), 10);
-        PointLight(room, new Vector3(35.5f, 2.9f, 25f), new Color(1f, 0.75f, 0.45f), 1.3f, 7f, flicker: true, shadows: false);
+        Box("Shelving", room, new Vector3(33.6f, 1.2f, 10.5f), new Vector3(0.8f, 2.4f, 5f), metal);
+        Box("Shelving", room, new Vector3(40.4f, 1.2f, 10.5f), new Vector3(0.8f, 2.4f, 5f), metal);
+        Box("Crate", room, new Vector3(37f, 0.5f, 13.9f), Vector3.one * 1f, crate);
+        Box("Table", room, new Vector3(37f, 0.4f, 12.5f), new Vector3(1.4f, 0.8f, 0.8f), crate);
+        BuildItem(room, "BackupPowerKey", "Backup Power Area key", "It opens the gate to the generator passage.", new Vector3(37f, 0.84f, 12.5f), brassKey);
+        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(35f, 0.1f, 13.8f), 10);
+        PointLight(room, new Vector3(37f, 2.9f, 10.5f), new Color(1f, 0.75f, 0.45f), 1.3f, 7f, flicker: true, shadows: false);
 
-        Door(36f, 4f);
-        Door(35.5f, 22f);
-        Powered(Door(22f, 22f, lockSign), "The door is dead. There's no power in the building.");
+        Door(42f, 0f);
+        Locked(Door(35f, -2f, lockSign), "BackupPowerKey", "Locked. A sign reads: BACKUP POWER AREA.");
+        Locked(Door(44f, -5f, lockSign), "Outside", "That way leads back out of the facility. Not now.");
+        Door(37f, 6f);
+        Locked(Door(22f, 9f, lockSign), "B1GeneratorKey", "Locked. The tag on the lock reads: B1 GENERATOR ROOM.");
+        Powered(Door(42.5f, 14.5f, lockSign), generator, "The door has no power. The building is dark.");
     }
 
-    // The office where the first raptor waits, and the L-shaped hallway round it.
+    // 1-6 and 1-20: the hallway into the building and the office where the first raptor waits. The
+    // office door to the hallway only unlocks from inside, and a laser shutter cuts the hallway off
+    // from the main entrance; the duct vent in the hallway is the way on.
     static void BuildOfficeWing()
     {
         Transform room = office.root;
-        foreach (Vector3 desk in new[] { new Vector3(8f, 0f, 32f), new Vector3(8f, 0f, 28f), new Vector3(13f, 0f, 32f), new Vector3(13f, 0f, 28f) })
+        foreach (Vector3 desk in new[] { new Vector3(25f, 0f, 24f), new Vector3(25f, 0f, 20f), new Vector3(30f, 0f, 24f), new Vector3(30f, 0f, 20f), new Vector3(35f, 0f, 24f) })
         {
             Box("Desk", room, desk + Vector3.up * 0.45f, new Vector3(3f, 0.9f, 1.2f), metal);
             Box("Monitor", room, desk + new Vector3(-0.6f, 1.2f, 0.3f), new Vector3(0.8f, 0.55f, 0.08f), screenGlow, collider: false);
         }
-        Box("Filing Cabinet", room, new Vector3(19.4f, 0.7f, 24.5f), new Vector3(0.8f, 1.4f, 2f), metal);
-        Box("Filing Cabinet", room, new Vector3(19.4f, 0.7f, 33f), new Vector3(0.8f, 1.4f, 2f), metal);
-        Box("Toppled Chair", room, new Vector3(10.5f, 0.25f, 25f), new Vector3(0.6f, 0.5f, 0.6f), gunMetal);
-        Box("Blood", room, new Vector3(16f, 0.01f, 27f), new Vector3(1.6f, 0.02f, 1.1f), blood, collider: false);
-        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(13f, 0.98f, 28f), 10);
-        PointLight(room, new Vector3(9f, 2.9f, 30f), new Color(0.7f, 0.85f, 1f), 1.4f, 10f, flicker: true, shadows: true);
-        PointLight(room, new Vector3(16f, 2.9f, 25f), new Color(0.7f, 0.85f, 1f), 1f, 7f, flicker: false, shadows: false);
+        Box("Filing Cabinet", room, new Vector3(40.4f, 0.7f, 17f), new Vector3(0.8f, 1.4f, 2f), metal);
+        Box("Filing Cabinet", room, new Vector3(40.4f, 0.7f, 24f), new Vector3(0.8f, 1.4f, 2f), metal);
+        Box("Toppled Chair", room, new Vector3(27.5f, 0.25f, 17f), new Vector3(0.6f, 0.5f, 0.6f), gunMetal);
+        Box("Blood", room, new Vector3(33f, 0.01f, 17.5f), new Vector3(1.6f, 0.02f, 1.1f), blood, collider: false);
+        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(30f, 0.98f, 20f), 10);
+        PointLight(room, new Vector3(26f, 2.9f, 21f), new Color(0.7f, 0.85f, 1f), 1.4f, 10f, flicker: true, shadows: true);
+        PointLight(room, new Vector3(35f, 2.9f, 19f), new Color(0.7f, 0.85f, 1f), 1f, 8f, flicker: false, shadows: false);
 
-        BuildRaptor(office, new Vector3(17f, 0f, 30f), 270f, ambush: false,
-            new Vector3(17f, 0f, 30f), new Vector3(16f, 0f, 24f), new Vector3(6f, 0f, 24f), new Vector3(10f, 0f, 34.5f));
+        BuildRaptor(office, new Vector3(24.5f, 0f, 22f), 90f, ambush: false,
+            new Vector3(24.5f, 0f, 22f), new Vector3(37.5f, 0f, 17f), new Vector3(38.5f, 0f, 22f), new Vector3(27.5f, 0f, 26.5f));
 
         room = officeHallway.root;
-        Box("Vending Machine", room, new Vector3(23.4f, 1f, 38.6f), new Vector3(0.9f, 2f, 0.9f), screenGlow);
-        Plant(room, 6f, 38.9f);
-        Plant(room, 23.4f, 23f);
-        PointLight(room, new Vector3(12f, 2.9f, 37.75f), new Color(0.8f, 0.85f, 1f), 0.9f, 7f, flicker: false, shadows: false);
-        PointLight(room, new Vector3(22f, 2.8f, 30f), new Color(1f, 0.12f, 0.08f), 2f, 7f, flicker: true, shadows: false);
+        Box("Vending Machine", room, new Vector3(43.4f, 1f, 30.4f), new Vector3(0.9f, 2f, 0.9f), screenGlow);
+        Plant(room, 43.4f, 16f);
+        Plant(room, 33f, 30.5f);
+        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(42.5f, 0.1f, 25f), 10);
+        Powered(PointLight(room, new Vector3(30f, 2.9f, 29.25f), new Color(0.8f, 0.85f, 1f), 1f, 8f, flicker: false, shadows: false));
+        Powered(PointLight(room, new Vector3(42.5f, 2.8f, 21f), new Color(1f, 0.12f, 0.08f), 2f, 7f, flicker: true, shadows: false));
+        PointLight(officeHallwayEnd.root, new Vector3(21.5f, 2.9f, 29.25f), new Color(0.8f, 0.85f, 1f), 0.6f, 4f, flicker: false, shadows: false);
 
-        Door(12f, 36f);
-        Door(4f, 25f);
-        Powered(Door(4f, 37.75f, lockSign, laserShutter: true), "A laser shutter. It won't open without power.");
+        Door(20f, 17f);
+        Door(37.25f, 27.5f).unlocksFromSide = -1;
+        Door(20f, 29.25f);
+        Powered(Door(23f, 29.25f, lockSign, laserShutter: true), laserConsole, "A laser shutter blocks the way. It's switched from somewhere else.");
     }
 
-    // The entrance hall with its sealed stairs, the elevator hall behind the code lock, and the
-    // elevator itself, which ends the demo.
+    // 1-13, 1-14 and 1-15: the main entrance with its sealed stairs to 2F, the plaza in front of it
+    // where the code disk lies, and the elevator hall behind the code lock, where the prototype ends.
     static void BuildEntrance()
     {
         Transform room = entrance.root;
-        foreach (Vector3 pillar in new[] { new Vector3(-8f, 0f, 33f), new Vector3(0f, 0f, 33f), new Vector3(-8f, 0f, 39f), new Vector3(0f, 0f, 39f) })
+        foreach (Vector3 pillar in new[] { new Vector3(4f, 0f, 27f), new Vector3(4f, 0f, 32f), new Vector3(17.5f, 0f, 32f) })
         {
             Box("Pillar", room, pillar + Vector3.up * (WallHeight / 2f), new Vector3(0.8f, WallHeight, 0.8f), wall);
         }
-        Box("Reception Desk", room, new Vector3(-4f, 0.5f, 36.5f), new Vector3(3f, 1f, 1f), crate);
-        Box("Bench", room, new Vector3(-10.9f, 0.25f, 34f), new Vector3(0.6f, 0.5f, 2.4f), metal);
-        BuildPickup(room, Pickup.Kind.MedPak, new Vector3(-10.9f, 0.59f, 34f), 50);
+        Box("Reception Desk", room, new Vector3(7f, 0.5f, 31.5f), new Vector3(3f, 1f, 1f), crate);
+        Box("Bench", room, new Vector3(0.45f, 0.25f, 33.2f), new Vector3(0.6f, 0.5f, 2f), metal);
+        BuildPickup(room, Pickup.Kind.MedPak, new Vector3(0.45f, 0.59f, 33.2f), 50);
 
-        // The stairs up to the next floor, rising toward the east wall behind a railing and a shutter.
-        for (int i = 0; i < 6; i++)
+        // The stairs up to 2F, rising north between railings behind a shutter.
+        for (int i = 0; i < 7; i++)
         {
             float height = 0.3f * (i + 1);
-            Box("Step", room, new Vector3(0.5f + i * 0.6f, height / 2f, 42.4f), new Vector3(0.6f, height, 2.8f), concrete);
+            Box("Step", room, new Vector3(13.8f, height / 2f, 25.3f + i * 0.55f + 0.275f), new Vector3(2.4f, height, 0.55f), concrete);
         }
-        Box("Railing", room, new Vector3(1.9f, 0.5f, 40.95f), new Vector3(3.9f, 1f, 0.1f), metal);
-        GameObject shutter = Box("Stair Shutter", room, new Vector3(0.1f, 1.2f, 42.4f), new Vector3(0.1f, 2.4f, 2.8f), metal);
+        Box("Railing", room, new Vector3(12.5f, 0.5f, 27.2f), new Vector3(0.1f, 1f, 4.2f), metal);
+        Box("Railing", room, new Vector3(15.1f, 0.5f, 27.2f), new Vector3(0.1f, 1f, 4.2f), metal);
+        GameObject shutter = Box("Stair Shutter", room, new Vector3(13.8f, 1.2f, 25.15f), new Vector3(2.6f, 2.4f, 0.1f), metal);
         Examinable(shutter, "The stairs to the second floor are shuttered. There's no way up for now.");
+        PointLight(room, new Vector3(6f, 2.9f, 29.5f), new Color(0.75f, 0.85f, 1f), 1.4f, 10f, flicker: false, shadows: true);
+        PointLight(room, new Vector3(15f, 2.9f, 32f), new Color(0.75f, 0.85f, 1f), 1.1f, 9f, flicker: true, shadows: false);
 
-        PointLight(room, new Vector3(-4f, 2.9f, 31f), new Color(0.75f, 0.85f, 1f), 1.4f, 10f, flicker: false, shadows: true);
-        PointLight(room, new Vector3(-4f, 2.9f, 41f), new Color(0.75f, 0.85f, 1f), 1.2f, 9f, flicker: true, shadows: false);
+        BuildRaptor(entrance, new Vector3(5f, 0f, 33.5f), 90f, ambush: false,
+            new Vector3(5f, 0f, 33.5f), new Vector3(18.8f, 0f, 34f), new Vector3(17.2f, 0f, 26f), new Vector3(2f, 0f, 26f));
 
-        Floodlight(frontArea.root, new Vector3(-4f, 0f, 48f), flicker: false);
+        room = entrancePlaza.root;
+        Box("Utility Box", room, new Vector3(27.8f, 0.45f, 44.8f), new Vector3(1f, 0.9f, 1f), metal);
+        BuildItem(room, "DdkN", "code disk \"N\"", "It fits the code lock marked N.", new Vector3(27.8f, 0.93f, 44.8f), codeDisk);
+        Plant(room, 5f, 38f);
+        Plant(room, 14f, 38f);
+        Floodlight(room, new Vector3(1f, 0f, 45.8f), flicker: false);
+        Floodlight(room, new Vector3(15f, 0f, 45.8f), flicker: true);
+        Floodlight(room, new Vector3(22.4f, 0f, 36f), flicker: false);
+        BuildRaptor(entrancePlaza, new Vector3(3f, 0f, 43f), 90f, ambush: false,
+            new Vector3(3f, 0f, 43f), new Vector3(20f, 0f, 43.5f), new Vector3(12f, 0f, 37.5f), new Vector3(0.5f, 0f, 37.5f));
 
         room = elevatorHall.root;
-        Box("Bench", room, new Vector3(-0.6f, 0.25f, 22f), new Vector3(0.6f, 0.5f, 2.4f), metal);
-        Box("Call Panel", room, new Vector3(-7.83f, 1.2f, 23.1f), new Vector3(0.05f, 0.3f, 0.2f), screenGlow, collider: false);
-        PointLight(room, new Vector3(-4f, 2.9f, 22f), new Color(0.8f, 0.85f, 1f), 1.1f, 8f, flicker: false, shadows: false);
-        PointLight(elevator.root, new Vector3(-9.5f, 2.9f, 21.5f), new Color(1f, 0.95f, 0.85f), 0.8f, 4f, flicker: false, shadows: false);
+        Box("Bench", room, new Vector3(0.45f, 0.25f, 20.5f), new Vector3(0.6f, 0.5f, 2.4f), metal);
+        // The elevator down to B1: a closed car in the alcove, with its doors facing the hall.
+        Box("Elevator", room, new Vector3(14f, WallHeight / 2f, 15.7f), new Vector3(2f, WallHeight, 2.4f), metal);
+        Box("Elevator Door", room, new Vector3(13.55f, 1.2f, 16.92f), new Vector3(0.88f, 2.4f, 0.04f), door, collider: false);
+        Box("Elevator Door", room, new Vector3(14.45f, 1.2f, 16.92f), new Vector3(0.88f, 2.4f, 0.04f), door, collider: false);
+        Box("Floor Sign", room, new Vector3(14f, 2.6f, 16.93f), new Vector3(0.6f, 0.15f, 0.02f), lockSign, collider: false);
+        GameObject callPanel = Box("Call Panel", room, new Vector3(15.3f, 1.2f, 16.95f), new Vector3(0.2f, 0.3f, 0.05f), screenGlow, collider: false);
+        Goal goal = callPanel.AddComponent<Goal>();
+        goal.prompt = "Call the elevator to B1";
+        goal.message = "The elevator to B1 needs an ID card you don't have yet.\nThis is the end of the 1F prototype: the game doesn't continue from here.";
+        PointLight(room, new Vector3(9f, 2.9f, 20.5f), new Color(0.8f, 0.85f, 1f), 1.1f, 9f, flicker: false, shadows: false);
+        PointLight(room, new Vector3(14f, 2.9f, 18f), new Color(1f, 0.9f, 0.75f), 0.9f, 5f, flicker: false, shadows: false);
+        BuildRaptor(elevatorHall, new Vector3(6f, 0f, 20f), 90f, ambush: false,
+            new Vector3(3f, 0f, 20f), new Vector3(16f, 0f, 21f), new Vector3(9f, 0f, 15.75f));
 
-        Locked(Door(-4f, 44f, lockSign), "EntranceKey", "The front doors are locked. They need the entrance key.");
-        Door(-12f, 42f);
-        Locked(Door(-4f, 28f, lockSign), "CodeDiskN", "A code lock marked \"N\". It needs the matching code disk.");
-        SlidingDoor lift = Door(-8f, 21.5f, lockSign);
-        Locked(lift, "ResearcherID", "The elevator to B1 needs a researcher's ID card.");
-        lift.endsDemo = true;
+        Door(0f, 29.25f);
+        Locked(Door(9.5f, 35f, lockSign), "EntranceKey", "The front doors are locked. They need the entrance key.");
+        Locked(Door(29f, 41.5f, lockSign), "CommRoom", "Locked from the other side.");
+        Locked(Door(9.5f, 24f, lockSign), "DdkN", "A code lock marked \"N\". It needs the matching code disk.");
+        Door(18f, 22.25f).unlocksFromSide = -1;
     }
 
-    // The hallway below the elevator hall and the lecture room, where two raptors hunt together
-    // over the researcher ID.
+    // 1-16 and 1-19: the hallway wrapping round the elevator hall, and the lecture room with the
+    // key to the backyard gate of the generator passage.
     static void BuildLectureWing()
     {
         Transform room = lectureHallway.root;
-        Box("Bench", room, new Vector3(-8f, 0.25f, 15.4f), new Vector3(2.4f, 0.5f, 0.6f), metal);
-        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(3.4f, 0.1f, 16.6f), 10);
-        PointLight(room, new Vector3(-6f, 2.9f, 14f), new Color(0.8f, 0.85f, 1f), 0.9f, 7f, flicker: false, shadows: false);
-        PointLight(room, new Vector3(2f, 2.9f, 22f), new Color(1f, 0.12f, 0.08f), 2f, 7f, flicker: true, shadows: false);
+        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(19.4f, 0.1f, 13f), 10);
+        PointLight(room, new Vector3(10f, 2.9f, 13.5f), new Color(0.8f, 0.85f, 1f), 0.9f, 7f, flicker: false, shadows: false);
+        PointLight(room, new Vector3(19f, 2.8f, 19f), new Color(1f, 0.12f, 0.08f), 2f, 7f, flicker: true, shadows: false);
+        PointLight(room, new Vector3(1f, 2.9f, 5f), new Color(0.8f, 0.85f, 1f), 0.8f, 6f, flicker: true, shadows: false);
 
         room = lectureRoom.root;
-        // Rows of desks facing the screen on the south wall, with an aisle in line with the door.
-        foreach (float rowZ in new[] { 9f, 6.5f })
+        // Columns of desks facing the screen on the east wall, with an aisle in line with the door.
+        foreach (float columnX in new[] { 7f, 10.5f, 14f })
         {
-            Box("Desk Row", room, new Vector3(-6.5f, 0.4f, rowZ), new Vector3(4f, 0.8f, 0.8f), crate);
-            Box("Desk Row", room, new Vector3(0.5f, 0.4f, rowZ), new Vector3(4f, 0.8f, 0.8f), crate);
+            Box("Desk Row", room, new Vector3(columnX, 0.4f, 3.6f), new Vector3(0.8f, 0.8f, 2.6f), crate);
+            Box("Desk Row", room, new Vector3(columnX, 0.4f, 8.9f), new Vector3(0.8f, 0.8f, 2.6f), crate);
         }
-        Box("Lectern", room, new Vector3(-3f, 0.6f, 2.2f), new Vector3(1f, 1.2f, 0.6f), crate);
-        Box("Screen", room, new Vector3(-3f, 1.8f, 0.18f), new Vector3(5f, 1.8f, 0.05f), screenGlow, collider: false);
-        Box("Blood", room, new Vector3(1f, 0.01f, 3f), new Vector3(1.6f, 0.02f, 1.1f), blood, collider: false);
-        BuildItem(room, "ResearcherID", "researcher ID card", "It should work the elevator down to B1.", new Vector3(-3f, 1.24f, 2.2f), keyCard);
-        PointLight(room, new Vector3(-6f, 2.9f, 6f), new Color(0.7f, 0.85f, 1f), 1.2f, 9f, flicker: false, shadows: true);
-        PointLight(room, new Vector3(1f, 2.9f, 4f), new Color(0.7f, 0.85f, 1f), 1f, 7f, flicker: true, shadows: false);
+        Box("Lectern", room, new Vector3(17.5f, 0.6f, 6.25f), new Vector3(0.6f, 1.2f, 1f), crate);
+        Box("Screen", room, new Vector3(19.82f, 1.8f, 6.25f), new Vector3(0.05f, 1.8f, 5f), screenGlow, collider: false);
+        Box("Blood", room, new Vector3(5f, 0.01f, 6f), new Vector3(1.6f, 0.02f, 1.1f), blood, collider: false);
+        BuildItem(room, "B1GeneratorKey", "B1 generator room key", "Its tag matches the gate between the backyard and the generator passage.", new Vector3(17.5f, 1.24f, 6.25f), brassKey);
+        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(3f, 0.1f, 11.5f), 10);
+        PointLight(room, new Vector3(8f, 2.9f, 6.25f), new Color(0.7f, 0.85f, 1f), 1.2f, 9f, flicker: false, shadows: true);
+        PointLight(room, new Vector3(15f, 2.9f, 3f), new Color(0.7f, 0.85f, 1f), 1f, 7f, flicker: true, shadows: false);
+        BuildRaptor(lectureRoom, new Vector3(12f, 0f, 6.25f), 270f, ambush: false,
+            new Vector3(4.5f, 0f, 1.2f), new Vector3(16f, 0f, 1.2f), new Vector3(16f, 0f, 11.5f), new Vector3(4.5f, 0f, 11.5f));
 
-        Vector3[] round = { new(-8f, 0f, 4f), new(2f, 0f, 4f), new(2f, 0f, 11f), new(-8f, 0f, 11f) };
-        BuildRaptor(lectureRoom, new Vector3(-7f, 0f, 3f), 90f, ambush: false, round);
-        BuildRaptor(lectureRoom, new Vector3(1.5f, 0f, 10.5f), 270f, ambush: false, round);
-
-        Door(-3f, 12f);
-        Door(-12f, 14f);
+        Door(2f, 6.25f);
     }
 
-    // The west wing, dark until the generator runs: the management office (a safe room no raptor
-    // gets into), the strategy room, the control room and the hallways between them.
+    // 1-8, 1-9, 1-11, 1-12, 1-18 and 1-21: the rest of the west wing.
     static void BuildWestWing()
     {
         Transform room = managementHallway.root;
-        Plant(room, -27.4f, 43.4f);
-        Powered(PointLight(room, new Vector3(-20f, 2.9f, 42f), new Color(0.8f, 0.85f, 1f), 1f, 8f, flicker: false, shadows: false));
-        Powered(PointLight(room, new Vector3(-14f, 2.9f, 42f), new Color(0.8f, 0.85f, 1f), 0.8f, 6f, flicker: true, shadows: false));
+        Plant(room, -15f, 30.5f);
+        PointLight(room, new Vector3(-9f, 2.9f, 29.25f), new Color(0.8f, 0.85f, 1f), 1f, 8f, flicker: false, shadows: false);
+        PointLight(room, new Vector3(-13.5f, 2.9f, 25.5f), new Color(0.8f, 0.85f, 1f), 0.8f, 6f, flicker: true, shadows: false);
+        PointLight(managementHallwayEnd.root, new Vector3(-1.75f, 2.9f, 29.25f), new Color(0.8f, 0.85f, 1f), 0.6f, 4f, flicker: false, shadows: false);
+        PointLight(managementVestibule.root, new Vector3(-13.5f, 2.9f, 21.5f), new Color(1f, 0.12f, 0.08f), 1.6f, 5f, flicker: true, shadows: false);
 
         room = lockerRoom.root;
-        Box("Lockers", room, new Vector3(-22f, 1f, 49.5f), new Vector3(6f, 2f, 0.6f), metal);
-        Box("Bench", room, new Vector3(-22f, 0.25f, 47f), new Vector3(4f, 0.5f, 0.5f), crate);
-        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(-20.5f, 0.58f, 47f), 10);
-        Powered(PointLight(room, new Vector3(-22f, 2.9f, 47f), new Color(0.85f, 0.9f, 1f), 1f, 6f, flicker: false, shadows: false));
-
-        room = managementOffice.root;
-        Box("Desk", room, new Vector3(-22f, 0.45f, 35f), new Vector3(3f, 0.9f, 1.2f), metal);
-        Box("Sofa", room, new Vector3(-25.4f, 0.35f, 37.5f), new Vector3(1f, 0.7f, 2.4f), suit);
-        GameObject terminal = Box("Terminal", room, new Vector3(-25.5f, 0.6f, 32f), new Vector3(0.6f, 1.2f, 0.8f), screenGlow);
-        Examinable(terminal, "SECURE ROOM: the doors here only open for staff. Nothing else gets in.");
-        BuildPickup(room, Pickup.Kind.MedPak, new Vector3(-22f, 0.99f, 35f), 50);
-        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(-17f, 0.1f, 31f), 10);
-        Powered(PointLight(room, new Vector3(-21f, 2.9f, 35f), new Color(1f, 0.85f, 0.6f), 1.3f, 8f, flicker: false, shadows: false));
-
-        room = westHallway.root;
-        Box("Toppled Locker", room, new Vector3(-15.4f, 0.3f, 30.5f), new Vector3(0.9f, 0.6f, 1.8f), metal);
-        Box("Blood Trail", room, new Vector3(-13.5f, 0.01f, 16f), new Vector3(0.3f, 0.02f, 4f), blood, collider: false);
-        Powered(PointLight(room, new Vector3(-14f, 2.9f, 10f), new Color(0.8f, 0.85f, 1f), 0.9f, 7f, flicker: false, shadows: false));
-        Powered(PointLight(room, new Vector3(-14f, 2.8f, 22f), new Color(1f, 0.12f, 0.08f), 2f, 7f, flicker: true, shadows: false));
-        Powered(PointLight(room, new Vector3(-14f, 2.9f, 34f), new Color(0.8f, 0.85f, 1f), 0.9f, 7f, flicker: true, shadows: false));
-        BuildRaptor(westHallway, new Vector3(-14f, 0f, 22f), 180f, ambush: false,
-            new Vector3(-14f, 0f, 8f), new Vector3(-24f, 0f, 2f), new Vector3(-14f, 0f, 8f), new Vector3(-14f, 0f, 37f));
+        Box("Lockers", room, new Vector3(-21.6f, 1f, 27.25f), new Vector3(0.6f, 2f, 6f), metal);
+        Box("Bench", room, new Vector3(-18.75f, 0.25f, 27.25f), new Vector3(0.5f, 0.5f, 3f), crate);
+        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(-18.75f, 0.58f, 26.5f), 10);
+        PointLight(room, new Vector3(-18.75f, 2.9f, 27.25f), new Color(0.85f, 0.9f, 1f), 1f, 6f, flicker: false, shadows: false);
 
         room = toilet.root;
-        Box("Sinks", room, new Vector3(-19f, 0.45f, 29.55f), new Vector3(2.5f, 0.9f, 0.6f), tile);
-        Box("Stall Wall", room, new Vector3(-20.5f, 1f, 25.1f), new Vector3(0.08f, 2f, 2.2f), tile);
-        Box("Stall Wall", room, new Vector3(-19f, 1f, 25.1f), new Vector3(0.08f, 2f, 2.2f), tile);
-        BuildPickup(room, Pickup.Kind.MedPak, new Vector3(-21.3f, 0.1f, 24.7f), 50);
-        Powered(PointLight(room, new Vector3(-19f, 2.9f, 27f), new Color(0.85f, 1f, 0.9f), 0.9f, 6f, flicker: true, shadows: false));
+        Box("Sinks", room, new Vector3(-19.5f, 0.45f, 23.2f), new Vector3(3f, 0.9f, 0.5f), tile);
+        Box("Stall Wall", room, new Vector3(-20.5f, 1f, 19.6f), new Vector3(0.08f, 2f, 2.2f), tile);
+        Box("Stall Wall", room, new Vector3(-19f, 1f, 19.6f), new Vector3(0.08f, 2f, 2.2f), tile);
+        BuildPickup(room, Pickup.Kind.MedPak, new Vector3(-21.3f, 0.1f, 19.1f), 50);
+        PointLight(room, new Vector3(-18.75f, 2.9f, 21f), new Color(0.85f, 1f, 0.9f), 0.9f, 6f, flicker: true, shadows: false);
 
         room = strategyRoom.root;
-        Box("Briefing Table", room, new Vector3(-22f, 0.45f, 19f), new Vector3(5f, 0.9f, 2.5f), metal);
-        Box("Map Screen", room, new Vector3(-27.82f, 1.6f, 19f), new Vector3(0.05f, 1.6f, 4f), screenGlow, collider: false);
-        BuildItem(room, "CodeDiskN", "code disk \"N\"", "It fits a code lock marked N.", new Vector3(-22f, 0.93f, 19f), codeDisk);
-        Powered(PointLight(room, new Vector3(-22f, 2.9f, 19f), new Color(0.75f, 0.85f, 1f), 1.3f, 9f, flicker: false, shadows: true));
+        Box("Briefing Table", room, new Vector3(-9.25f, 0.45f, 15.5f), new Vector3(5f, 0.9f, 2.5f), metal);
+        Box("Map Screen", room, new Vector3(-15.32f, 1.6f, 15.5f), new Vector3(0.05f, 1.6f, 4f), screenGlow, collider: false);
+        PointLight(room, new Vector3(-9.25f, 2.9f, 15.5f), new Color(0.75f, 0.85f, 1f), 1.2f, 9f, flicker: false, shadows: false);
+
+        room = controlHall.root;
+        Box("Pipe", room, new Vector3(-7.75f, 2.6f, 9.4f), new Vector3(15.5f, 0.15f, 0.15f), metal, collider: false);
+        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(-14.8f, 0.1f, 5f), 10);
+        PointLight(room, new Vector3(-8f, 2.9f, 10.25f), new Color(0.8f, 0.85f, 1f), 0.9f, 7f, flicker: false, shadows: false);
+        PointLight(room, new Vector3(-1.5f, 2.8f, 15.5f), new Color(1f, 0.12f, 0.08f), 2f, 7f, flicker: true, shadows: false);
+        PointLight(room, new Vector3(-14.25f, 2.9f, 6f), new Color(0.8f, 0.85f, 1f), 0.7f, 5f, flicker: true, shadows: false);
+        BuildRaptor(controlHall, new Vector3(-14.25f, 0f, 6.5f), 0f, ambush: false,
+            new Vector3(-14.25f, 0f, 5f), new Vector3(-8f, 0f, 10.25f), new Vector3(-1.5f, 0f, 16f), new Vector3(-8f, 0f, 10.25f));
+
+        room = controlHallEnd.root;
+        Box("Stairwell", room, new Vector3(-9f, 0.01f, -2.6f), new Vector3(5f, 0.02f, 2.4f), gunMetal, collider: false);
+        Box("Railing", room, new Vector3(-9f, 0.5f, -1.35f), new Vector3(5f, 1f, 0.1f), metal);
+        PointLight(room, new Vector3(-9.5f, 2.9f, -2f), new Color(0.8f, 0.85f, 1f), 0.5f, 5f, flicker: true, shadows: false);
 
         room = controlRoom.root;
-        Box("Console", room, new Vector3(-27.4f, 0.5f, 9f), new Vector3(0.8f, 1f, 6f), metal);
-        Box("Console Screens", room, new Vector3(-27.75f, 1.45f, 9f), new Vector3(0.05f, 0.7f, 5.6f), screenGlow, collider: false);
-        Box("Desk", room, new Vector3(-20f, 0.45f, 9.5f), new Vector3(1.2f, 0.9f, 3f), metal);
-        BuildItem(room, "MilitaryID", "military ID card", "It should open the Strategy Room.", new Vector3(-20f, 0.93f, 9.5f), militaryCard);
-        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(-17f, 0.1f, 13.2f), 10);
-        GameObject stairs = Box("Stair Shutter", room, new Vector3(-24f, 1.2f, 13.75f), new Vector3(1.8f, 2.4f, 0.2f), metal);
-        Examinable(stairs, "The stairway down to the basement. Its shutter is down and won't move.");
-        Powered(PointLight(room, new Vector3(-22f, 2.9f, 9f), new Color(0.7f, 1f, 0.8f), 1.2f, 9f, flicker: true, shadows: false));
+        Box("Console", room, new Vector3(-0.6f, 0.5f, 4.5f), new Vector3(0.8f, 1f, 6f), metal);
+        Box("Console Screens", room, new Vector3(-0.18f, 1.45f, 4.5f), new Vector3(0.05f, 0.7f, 5.6f), screenGlow, collider: false);
+        Box("Desk", room, new Vector3(-6f, 0.45f, 5f), new Vector3(1.2f, 0.9f, 3f), metal);
+        GameObject lift = Box("Lift Door", room, new Vector3(-4.75f, 1.2f, 0.17f), new Vector3(1.6f, 2.4f, 0.04f), door);
+        Examinable(lift, "A small lift. It needs a communications ID card.");
+        Box("Lift Sign", room, new Vector3(-4.75f, 2.6f, 0.17f), new Vector3(0.5f, 0.12f, 0.03f), lockSign, collider: false);
+        BuildPickup(room, Pickup.Kind.Ammo, new Vector3(-10.8f, 0.1f, 8.4f), 10);
+        PointLight(room, new Vector3(-6f, 2.9f, 4.5f), new Color(0.7f, 1f, 0.8f), 1.2f, 9f, flicker: true, shadows: false);
 
-        room = controlHallway.root;
-        Box("Pipe", room, new Vector3(-20f, 2.6f, 0.4f), new Vector3(16f, 0.15f, 0.15f), metal, collider: false);
-        Powered(PointLight(room, new Vector3(-20f, 2.9f, 2f), new Color(0.8f, 0.85f, 1f), 0.9f, 7f, flicker: false, shadows: false));
+        const string laserMessage = "A laser shutter blocks the way. It's switched from somewhere else.";
+        Powered(Door(-3.5f, 29.25f, lockSign, laserShutter: true), laserConsole, laserMessage);
+        Powered(Door(-13.5f, 24f, lockSign, laserShutter: true), laserConsole, laserMessage);
+        Door(-15.5f, 29.25f);
+        Door(-15.5f, 21.5f);
+        Locked(Door(-13.5f, 19.5f, lockSign), "MilitaryID", "Locked. It needs a military ID card.");
+        Door(-7.75f, 9f);
+        Locked(Door(-14.25f, 3.8f, lockSign), "StairShutter", "A heavy metal shutter blocks the stairs down. It won't move.");
+    }
 
-        Powered(Door(-14f, 40f, lockSign, laserShutter: true), "A laser shutter. It won't open without power.");
-        Door(-22f, 44f);
-        Door(-21f, 40f).keepsRaptorsOut = true;
-        Door(-16f, 35f).keepsRaptorsOut = true;
-        Door(-16f, 27f);
-        Locked(Door(-16f, 19f, lockSign), "MilitaryID", "Locked. It needs a military ID card.");
-        Door(-14f, 4f);
-        Door(-22f, 4f);
+    // 1-7 and 1-17: the piping ducts. Each vent in a room is linked to one at the end of a duct.
+    static void BuildDucts()
+    {
+        foreach ((Room room, Vector3 light) in new[] { (ductA, new Vector3(-47f, 2.6f, -30f)), (ductA, new Vector3(-36f, 2.6f, -35f)), (ductA, new Vector3(-25f, 2.6f, -30f)),
+                     (ductB, new Vector3(-47f, 2.6f, -16f)), (ductB, new Vector3(-38f, 2.6f, -21f)), (ductB, new Vector3(-29f, 2.6f, -16f)) })
+        {
+            PointLight(room.root, light, new Color(0.5f, 1f, 0.6f), 0.7f, 6f, flicker: false, shadows: false);
+        }
+        foreach (Room room in new[] { ductA, ductB })
+        {
+            foreach (Rect rect in room.rects)
+            {
+                Box("Duct Lining", room.root, new Vector3(rect.center.x, 0.02f, rect.center.y), new Vector3(rect.width - 0.2f, 0.02f, rect.height - 0.2f), duct, collider: false);
+            }
+        }
+
+        // Yaw 180 faces south out of a north wall, 0 north, 90 east.
+        LinkVents(BuildVent(officeHallway, new Vector3(25f, 0f, 30.82f), 180f), BuildVent(ductA, new Vector3(-25f, 0f, -26.18f), 180f, inDuct: true));
+        LinkVents(BuildVent(controlHall, new Vector3(-2.82f, 0f, 17f), 90f), BuildVent(ductA, new Vector3(-37f, 0f, -37.82f), 0f, inDuct: true));
+        LinkVents(BuildVent(managementHallwayEnd, new Vector3(-1.75f, 0f, 30.82f), 180f), BuildVent(ductA, new Vector3(-47f, 0f, -26.18f), 180f, inDuct: true));
+        LinkVents(BuildVent(toilet, new Vector3(-21.82f, 0f, 22.5f), 90f), BuildVent(ductB, new Vector3(-47f, 0f, -12.18f), 180f, inDuct: true));
+        LinkVents(BuildVent(lectureHallway, new Vector3(2.75f, 0f, 16.82f), 180f), BuildVent(ductB, new Vector3(-29f, 0f, -12.18f), 180f, inDuct: true));
     }
 
     // ---------- Building blocks ----------
@@ -423,6 +522,10 @@ public static class SceneBuilder
     }
 
     static Room RoomAt(Vector3 point) => rooms.Find(room => room.Contains(point));
+
+    static void Open(Room a, Room b) => openings.Add((a, b));
+
+    static bool IsOpen(Room a, Room b) => openings.Exists(pair => (pair.Item1 == a && pair.Item2 == b) || (pair.Item1 == b && pair.Item2 == a));
 
     // Wherever two different rooms (or a room and the outside) meet along an edge, a wall goes up.
     // Walls are built from the room rectangles' edges, line by line, skipping doorways.
@@ -461,7 +564,7 @@ public static class SceneBuilder
                 if (b - a < 0.01f) continue;
                 Room one = RoomAt(Point((a + b) / 2f, -0.05f));
                 Room other = RoomAt(Point((a + b) / 2f, 0.05f));
-                if (one == other) continue;
+                if (one == other || IsOpen(one, other)) continue;
                 // Building walls wherever the building is; fences between the yards and the outside.
                 Material material = (one != null && !one.outdoor) || (other != null && !other.outdoor) ? wall : fence;
                 if (runs.Count > 0 && Mathf.Approximately(runs[^1].to, a) && runs[^1].material == material) runs[^1] = (runs[^1].from, b, material);
@@ -499,8 +602,9 @@ public static class SceneBuilder
         }
     }
 
-    // A double sliding door at (x, z), which must lie on an edge between two rooms. Its local +Z
-    // faces north or east into the front room. A laser shutter is the same door with beams for halves.
+    // A double sliding door at (x, z), which must lie on a room's edge. Its local +Z faces north or
+    // east into the front room; a door in an outer wall leads nowhere and is meant to stay locked.
+    // A laser shutter is the same door with beams for halves.
     static SlidingDoor Door(float x, float z, Material signMaterial = null, bool laserShutter = false)
     {
         bool alongX = rooms.Exists(room => room.rects.Exists(rect =>
@@ -511,8 +615,10 @@ public static class SceneBuilder
         Room back = RoomAt(point - normal * 0.5f);
         doorways.Add((alongX, alongX ? z : x, alongX ? x : z));
 
-        Transform root = new GameObject($"Door {front.name} / {back.name}").transform;
-        root.SetParent(front.root, false);
+        string frontName = front != null ? front.name : "Outside";
+        string backName = back != null ? back.name : "Outside";
+        Transform root = new GameObject($"Door {frontName} / {backName}").transform;
+        root.SetParent((front ?? back).root, false);
         root.SetLocalPositionAndRotation(point, Quaternion.Euler(0f, alongX ? 0f : 90f, 0f));
 
         Vector3 halfSize = new(DoorwayWidth / 2f, DoorwayHeight, 0.12f);
@@ -546,8 +652,8 @@ public static class SceneBuilder
         slidingDoor.rightPanel = PanelHalf("Right Half", 1f);
         // A touch further than the gap, so an open half's edge doesn't flicker against the door frame.
         slidingDoor.slideDistance = DoorwayWidth / 2f + 0.03f;
-        slidingDoor.frontRoomName = front.name.ToUpperInvariant();
-        slidingDoor.backRoomName = back.name.ToUpperInvariant();
+        slidingDoor.frontRoomName = front != null ? front.name.ToUpperInvariant() : "";
+        slidingDoor.backRoomName = back != null ? back.name.ToUpperInvariant() : "";
 
         // Off until the door decides raptors can't get through; carving makes the agents path around it.
         NavMeshObstacle blocker = root.gameObject.AddComponent<NavMeshObstacle>();
@@ -570,9 +676,9 @@ public static class SceneBuilder
         door.lockedMessage = message;
     }
 
-    static void Powered(SlidingDoor door, string message)
+    static void Powered(SlidingDoor door, PowerSwitch source, string message)
     {
-        door.powerSource = generator;
+        door.powerSource = source;
         door.lockedMessage = message;
     }
 
@@ -613,6 +719,22 @@ public static class SceneBuilder
     {
         Box("Planter", room, new Vector3(x, 0.3f, z), new Vector3(0.5f, 0.6f, 0.5f), concrete);
         Part(PrimitiveType.Sphere, "Leaves", room, new Vector3(x, 0.95f, z), Vector3.zero, new Vector3(0.7f, 0.8f, 0.7f), raptorDark);
+    }
+
+    // A grate low on a wall; `yaw` turns its front out of the wall into the room.
+    static Vent BuildVent(Room room, Vector3 position, float yaw, bool inDuct = false)
+    {
+        GameObject grate = Box("Vent", room.root, position + Vector3.up * 0.45f, new Vector3(1f, 0.6f, 0.06f), gunMetal, collider: false);
+        grate.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+        Vent vent = grate.AddComponent<Vent>();
+        vent.prompt = inDuct ? "Climb out of the duct" : "Crawl into the duct";
+        return vent;
+    }
+
+    static void LinkVents(Vent a, Vent b)
+    {
+        a.exit = b;
+        b.exit = a;
     }
 
     static void Examinable(GameObject target, string message) => target.AddComponent<Notice>().message = message;
@@ -808,6 +930,7 @@ public static class SceneBuilder
         door = Mat("Door", new Color(0.3f, 0.36f, 0.42f), smoothness: 0.4f);
         laser = Mat("Laser", new Color(1f, 0.1f, 0.1f), emission: new Color(1f, 0.05f, 0.05f));
         tile = Mat("Tile", new Color(0.7f, 0.74f, 0.72f), smoothness: 0.6f);
+        duct = Mat("Duct", new Color(0.35f, 0.5f, 0.4f), smoothness: 0.5f);
         hazard = Mat("Hazard", new Color(0.75f, 0.55f, 0.1f), smoothness: 0.3f);
         suit = Mat("Suit", new Color(0.18f, 0.24f, 0.22f));
         skin = Mat("Skin", new Color(0.86f, 0.66f, 0.52f));
