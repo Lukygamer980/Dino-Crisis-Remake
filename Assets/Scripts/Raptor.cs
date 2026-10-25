@@ -3,7 +3,8 @@ using UnityEngine;
 
 // ponytail: steers straight at its target and slides along walls through the
 // CharacterController, with no pathfinding. That holds for open rooms but gets stuck
-// behind large obstacles; the upgrade path is a NavMeshAgent (AI Navigation package).
+// behind large obstacles, and a raptor chasing the player opens a door it walks into but can't
+// find its way through one; the upgrade path is a NavMeshAgent (AI Navigation package).
 [RequireComponent(typeof(CharacterController))]
 public class Raptor : MonoBehaviour
 {

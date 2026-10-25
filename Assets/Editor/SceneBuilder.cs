@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -8,14 +9,20 @@ using UnityEngine.Rendering;
 // "Dino Demo > Build Demo Scene" again to regenerate the scene from scratch; manual
 // edits made to the generated scene are lost on the next build.
 //
-// Rooms are placed far apart and are not physically connected: doors teleport the
-// player between them, so each room only needs to look right from the inside.
+// Rooms sit wall to wall and connect through doorways closed by sliding doors, so the
+// player and the raptors walk between them. A room leaves out a wall it shares with a
+// neighbour, so the two rooms never build the same wall twice.
 public static class SceneBuilder
 {
     const string ScenePath = "Assets/Scenes/DinoDemo.unity";
     const string MaterialFolder = "Assets/Materials";
     const float WallHeight = 3.2f;
     const float WallThickness = 0.3f;
+    const float DoorwayWidth = 1.8f;
+    const float DoorwayHeight = 2.4f;
+
+    [System.Flags]
+    enum Side { None = 0, North = 1, South = 2, East = 4, West = 8 }
 
     static Material concrete, wall, metal, crate, door, suit, skin, hair, gunMetal;
     static Material raptorSkin, raptorDark, raptorEyes, blood, screenGlow, exitSign, doorSign;
@@ -30,25 +37,26 @@ public static class SceneBuilder
 
         PlayerController player = BuildPlayer(new Vector3(-5f, 0f, -3f), 30f);
 
-        Transform dock = BuildRoom("Loading Dock", new Vector3(0f, 0f, 0f), 16f, 12f);
-        Transform corridor = BuildRoom("Service Corridor", new Vector3(40f, 0f, 0f), 4f, 22f);
-        Transform control = BuildRoom("Control Room", new Vector3(80f, 0f, 0f), 14f, 14f);
+        // The corridor runs north from the dock's north wall into the control room's south wall.
+        Transform dock = BuildRoom("Loading Dock", new Vector3(0f, 0f, 0f), 16f, 12f, Side.None,
+            (Side.North, 5f), (Side.West, 2f));
+        Transform corridor = BuildRoom("Service Corridor", new Vector3(5f, 0f, 17f), 4f, 22f, Side.North | Side.South);
+        Transform control = BuildRoom("Control Room", new Vector3(5f, 0f, 35f), 14f, 14f, Side.None,
+            (Side.South, 0f));
 
         FurnishLoadingDock(dock);
         FurnishCorridor(corridor);
         FurnishControlRoom(control);
 
-        LinkDoors(
-            BuildDoor(dock, "Door to Corridor", new Vector3(5f, 0f, 6f), 180f, doorSign),
-            BuildDoor(corridor, "Door to Loading Dock", new Vector3(0f, 0f, -11f), 0f, doorSign));
-        LinkDoors(
-            BuildDoor(corridor, "Door to Control Room", new Vector3(0f, 0f, 11f), 180f, doorSign),
-            BuildDoor(control, "Door to Corridor", new Vector3(0f, 0f, -7f), 0f, doorSign));
+        BuildSlidingDoor(dock, "Door to Corridor", new Vector3(5f, 0f, 6f), 180f, doorSign, corridor.name);
+        BuildSlidingDoor(control, "Door to Corridor", new Vector3(0f, 0f, -7f), 0f, doorSign, corridor.name);
 
-        Door exit = BuildDoor(dock, "Exit Door", new Vector3(-8f, 0f, 2f), 90f, exitSign).door;
+        SlidingDoor exit = BuildSlidingDoor(dock, "Exit Door", new Vector3(-8f, 0f, 2f), 90f, exitSign, "");
         exit.requiredItem = "KeyCard";
         exit.lockedMessage = "The exit is locked. It needs a key card.";
         exit.endsDemo = true;
+        // A bit of floor outside, so the open exit doesn't look out over nothing.
+        Box("Exit Floor", dock, new Vector3(-9.15f, -0.05f, 2f), new Vector3(2f, 0.1f, DoorwayWidth + 0.6f), concrete);
 
         BuildCameraAndUI(player);
 
@@ -115,50 +123,103 @@ public static class SceneBuilder
 
     // ---------- Building blocks ----------
 
-    static Transform BuildRoom(string name, Vector3 center, float width, float depth)
+    // `sharedSides` are left out: the neighbouring room's wall closes them. Each doorway is a wall
+    // side and an offset along that wall from the room's center, where the wall gets a door-sized gap.
+    static Transform BuildRoom(string name, Vector3 center, float width, float depth, Side sharedSides, params (Side side, float offset)[] doorways)
     {
         Transform room = new GameObject(name).transform;
         room.position = center;
         float halfWidth = width / 2f;
         float halfDepth = depth / 2f;
-        float wallY = WallHeight / 2f;
 
         Box("Floor", room, new Vector3(0f, -0.05f, 0f), new Vector3(width, 0.1f, depth), concrete);
-        Box("North Wall", room, new Vector3(0f, wallY, halfDepth), new Vector3(width + WallThickness, WallHeight, WallThickness), wall);
-        Box("South Wall", room, new Vector3(0f, wallY, -halfDepth), new Vector3(width + WallThickness, WallHeight, WallThickness), wall);
-        Box("East Wall", room, new Vector3(halfWidth, wallY, 0f), new Vector3(WallThickness, WallHeight, depth + WallThickness), wall);
-        Box("West Wall", room, new Vector3(-halfWidth, wallY, 0f), new Vector3(WallThickness, WallHeight, depth + WallThickness), wall);
+
+        // Walls overlap at the corners to close them, but stop at the center line of a shared
+        // wall, so they end inside it instead of poking out the neighbour's side.
+        float End(Side side) => (sharedSides & side) != 0 ? 0f : WallThickness / 2f;
+        float westEnd = -halfWidth - End(Side.West), eastEnd = halfWidth + End(Side.East);
+        float southEnd = -halfDepth - End(Side.South), northEnd = halfDepth + End(Side.North);
+
+        foreach (Side side in new[] { Side.North, Side.South, Side.East, Side.West })
+        {
+            if ((sharedSides & side) != 0) continue;
+            var gaps = new List<float>();
+            foreach ((Side doorSide, float offset) in doorways)
+            {
+                if (doorSide == side) gaps.Add(offset);
+            }
+
+            bool alongX = side is Side.North or Side.South;
+            Vector3 line = side switch
+            {
+                Side.North => new Vector3(0f, 0f, halfDepth),
+                Side.South => new Vector3(0f, 0f, -halfDepth),
+                Side.East => new Vector3(halfWidth, 0f, 0f),
+                _ => new Vector3(-halfWidth, 0f, 0f),
+            };
+            BuildWall(room, side + " Wall", line, alongX, alongX ? westEnd : southEnd, alongX ? eastEnd : northEnd, gaps);
+        }
         return room;
     }
 
-    // `wallPoint` is on the wall's center line at floor level; `yawIntoRoom` faces away from the wall.
-    static (Door door, Transform spawn) BuildDoor(Transform room, string name, Vector3 wallPoint, float yawIntoRoom, Material signMaterial)
+    // A wall along the room's X or Z axis through `line`, from `start` to `end`, with a doorway
+    // gap and a lintel above it at each of `gaps`.
+    static void BuildWall(Transform room, string name, Vector3 line, bool alongX, float start, float end, List<float> gaps)
     {
-        Quaternion facing = Quaternion.Euler(0f, yawIntoRoom, 0f);
-        Vector3 inward = facing * Vector3.forward;
+        Vector3 along = alongX ? Vector3.right : Vector3.forward;
+        void Piece(string pieceName, float from, float to, float bottom, float top)
+        {
+            float length = to - from;
+            if (length <= 0.01f) return;
+            Vector3 position = line + along * ((from + to) / 2f) + Vector3.up * ((bottom + top) / 2f);
+            Vector3 size = alongX
+                ? new Vector3(length, top - bottom, WallThickness)
+                : new Vector3(WallThickness, top - bottom, length);
+            Box(pieceName, room, position, size, wall);
+        }
 
-        GameObject panel = Box(name, room, wallPoint + inward * (WallThickness / 2f + 0.06f) + Vector3.up * 1.15f,
-            new Vector3(1.3f, 2.3f, 0.12f), door);
-        panel.transform.localRotation = facing;
-        Door doorComponent = panel.AddComponent<Door>();
-        doorComponent.roomName = room.name.ToUpperInvariant();
-
-        // Child of the panel, so position and scale are relative to it: this sits above the door.
-        Box("Sign", panel.transform, new Vector3(0f, 0.6f, 0f), new Vector3(0.35f, 0.05f, 1.5f), signMaterial, collider: false);
-
-        Transform spawn = new GameObject(name + " Spawn").transform;
-        spawn.SetParent(room, false);
-        spawn.localPosition = wallPoint + inward * 1.3f;
-        spawn.localRotation = facing;
-        return (doorComponent, spawn);
+        gaps.Sort();
+        float cursor = start;
+        foreach (float gap in gaps)
+        {
+            float gapStart = gap - DoorwayWidth / 2f;
+            float gapEnd = gap + DoorwayWidth / 2f;
+            Piece(name, cursor, gapStart, 0f, WallHeight);
+            Piece(name + " Lintel", gapStart, gapEnd, DoorwayHeight, WallHeight);
+            cursor = gapEnd;
+        }
+        Piece(name, cursor, end, 0f, WallHeight);
     }
 
-    static void LinkDoors((Door door, Transform spawn) a, (Door door, Transform spawn) b)
+    // `wallPoint` is the doorway's middle on the wall's center line at floor level; `yawIntoRoom`
+    // faces away from the wall into `room`. The halves slide into the wall's hollow when they open.
+    static SlidingDoor BuildSlidingDoor(Transform room, string name, Vector3 wallPoint, float yawIntoRoom, Material signMaterial, string otherRoomName)
     {
-        a.door.destination = b.spawn;
-        b.door.destination = a.spawn;
-        // A door announces the room it leads into.
-        (a.door.roomName, b.door.roomName) = (b.door.roomName, a.door.roomName);
+        Transform root = new GameObject(name).transform;
+        root.SetParent(room, false);
+        root.localPosition = wallPoint;
+        root.localRotation = Quaternion.Euler(0f, yawIntoRoom, 0f);
+
+        Vector3 halfSize = new(DoorwayWidth / 2f, DoorwayHeight, 0.12f);
+        Transform PanelHalf(string halfName, float side)
+        {
+            GameObject half = Box(halfName, root, new Vector3(side * DoorwayWidth / 4f, DoorwayHeight / 2f, 0f), halfSize, door);
+            // Colliders that move need a kinematic body, or physics treats them as static scenery.
+            half.AddComponent<Rigidbody>().isKinematic = true;
+            return half.transform;
+        }
+
+        SlidingDoor slidingDoor = root.gameObject.AddComponent<SlidingDoor>();
+        slidingDoor.leftPanel = PanelHalf("Left Half", -1f);
+        slidingDoor.rightPanel = PanelHalf("Right Half", 1f);
+        // A touch further than the gap, so an open half's edge doesn't flicker against the door frame.
+        slidingDoor.slideDistance = DoorwayWidth / 2f + 0.03f;
+        slidingDoor.frontRoomName = room.name.ToUpperInvariant();
+        slidingDoor.backRoomName = otherRoomName.ToUpperInvariant();
+
+        // On the lintel and a little thicker than the wall, so it shows from both rooms.
+        Box("Sign", root, new Vector3(0f, DoorwayHeight + 0.2f, 0f), new Vector3(0.7f, 0.08f, WallThickness + 0.04f), signMaterial, collider: false);
+        return slidingDoor;
     }
 
     static void PointLight(Transform room, Vector3 position, Color color, float intensity, float range, bool flicker, bool shadows)

@@ -237,13 +237,4 @@ public class PlayerController : MonoBehaviour
     public void AddItem(string item) => items.Add(item);
 
     public bool HasItem(string item) => items.Contains(item);
-
-    public void Teleport(Vector3 position, Quaternion rotation)
-    {
-        // A CharacterController overrides transform changes while enabled.
-        controller.enabled = false;
-        transform.SetPositionAndRotation(position, rotation);
-        controller.enabled = true;
-        knockback = Vector3.zero;
-    }
 }

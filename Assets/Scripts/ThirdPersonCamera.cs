@@ -2,7 +2,7 @@ using UnityEngine;
 
 // Third-person camera behind the player, turned with the mouse or the right stick. Holding aim
 // pulls it in over the right shoulder. It moves in front of walls and props instead of clipping
-// through them, and snaps back behind the player after a door teleport.
+// through them.
 [RequireComponent(typeof(Camera))]
 public class ThirdPersonCamera : MonoBehaviour
 {
@@ -39,7 +39,6 @@ public class ThirdPersonCamera : MonoBehaviour
     float pitch;
     float aimBlend;
     float currentDistance;
-    Vector3 lastPlayerPosition;
     bool playerVisible = true;
     Renderer[] playerRenderers;
     Camera viewCamera;
@@ -57,10 +56,6 @@ public class ThirdPersonCamera : MonoBehaviour
     void LateUpdate()
     {
         Transform target = player.transform;
-        // Doors teleport the player; a jump this big in one frame is never walking.
-        if ((target.position - lastPlayerPosition).sqrMagnitude > 9f) SnapBehindPlayer();
-        lastPlayerPosition = target.position;
-
         bool canLook = !player.IsDead && !player.inputLocked;
         if (canLook) ReadLookInput();
 
@@ -137,7 +132,6 @@ public class ThirdPersonCamera : MonoBehaviour
         yaw = player.transform.eulerAngles.y;
         pitch = defaultPitch;
         currentDistance = distance;
-        lastPlayerPosition = player.transform.position;
     }
 
     static void LockCursor()
