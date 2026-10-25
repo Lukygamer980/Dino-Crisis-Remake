@@ -217,7 +217,7 @@ public class PlayerController : MonoBehaviour
 
     public void TakeDamage(int amount, Vector3 fromPosition)
     {
-        if (IsDead) return;
+        if (IsDead || inputLocked || GameUI.Instance.Ending) return;
         Health = Mathf.Max(0, Health - amount);
         Vector3 away = transform.position - fromPosition;
         away.y = 0f;

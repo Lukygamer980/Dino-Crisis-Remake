@@ -81,7 +81,7 @@ public class SlidingDoor : MonoBehaviour
         if (side == playerSide) return;
         playerSide = side;
 
-        if (endsDemo && side < 0)
+        if (endsDemo && side < 0 && !player.IsDead)
         {
             finished = true;
             player.inputLocked = true;
