@@ -20,9 +20,8 @@ public class CameraDirector : MonoBehaviour
     {
         Vector3 playerCenter = player.position + Vector3.up;
 
-        // Stay on the current shot while the player is still inside it, so overlapping
-        // zones don't flicker back and forth at their shared edge.
-        if (currentZone == null || !currentZone.Contains(playerCenter))
+        // Stay on the current shot until the player is clearly past its edge (see stickyMargin).
+        if (currentZone == null || !currentZone.Contains(playerCenter, currentZone.stickyMargin))
         {
             foreach (CameraZone zone in zones)
             {

@@ -9,11 +9,17 @@ public class CameraZone : MonoBehaviour
     public Transform shot;
     public bool trackPlayer;
     public float fieldOfView = 55f;
+    // Once this shot is showing, it stays until the player is this far past the box. Neighbouring
+    // shots often face each other, and without it turning around right after a cut walks
+    // straight back into the previous shot.
+    public float stickyMargin = 1f;
 
-    public bool Contains(Vector3 worldPosition)
+    // margin grows the box on every side, in the zone's local units like size.
+    public bool Contains(Vector3 worldPosition, float margin = 0f)
     {
         Vector3 local = transform.InverseTransformPoint(worldPosition);
-        return Mathf.Abs(local.x) <= size.x / 2f && Mathf.Abs(local.y) <= size.y / 2f && Mathf.Abs(local.z) <= size.z / 2f;
+        Vector3 half = size / 2f + Vector3.one * margin;
+        return Mathf.Abs(local.x) <= half.x && Mathf.Abs(local.y) <= half.y && Mathf.Abs(local.z) <= half.z;
     }
 
     void OnDrawGizmos()

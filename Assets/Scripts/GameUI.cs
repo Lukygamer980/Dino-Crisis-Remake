@@ -11,8 +11,8 @@ public class GameUI : MonoBehaviour
     public PlayerController player;
 
     const string ControlsHelp =
-        "WASD move   Shift run   E interact\n" +
-        "Hold right mouse to aim at the cursor (K locks on)   Left mouse / J / Space shoots, even on the move";
+        "WASD / left stick move   Shift / Square run   E / Cross interact\n" +
+        "Hold right mouse to aim at the cursor (K / L2 lock on)   Left mouse / J / R2 shoots, even on the move";
 
     float fadeAlpha = 1f;
     float damageFlash;
@@ -24,7 +24,8 @@ public class GameUI : MonoBehaviour
     GUIStyle centeredStyle;
     GUIStyle hudStyle;
 
-    void Awake() => Instance = this;
+    // OnEnable rather than Awake: it also runs after a script reload in Play mode, which clears statics.
+    void OnEnable() => Instance = this;
 
     IEnumerator Start()
     {
@@ -35,7 +36,7 @@ public class GameUI : MonoBehaviour
     void Update()
     {
         damageFlash = Mathf.MoveTowards(damageFlash, 0f, Time.deltaTime * 2f);
-        if (endTitle != null && Input.GetKeyDown(KeyCode.R)) SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        if (endTitle != null && (Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.JoystickButton9))) SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 
     public void ShowMessage(string text, float seconds = 2.5f)
@@ -86,7 +87,7 @@ public class GameUI : MonoBehaviour
             centeredStyle.fontSize = 48;
             GUI.Label(new Rect(0f, height * 0.3f, width, height * 0.3f), endTitle, centeredStyle);
             centeredStyle.fontSize = 22;
-            GUI.Label(new Rect(0f, height * 0.6f, width, 40f), "Press R to restart", centeredStyle);
+            GUI.Label(new Rect(0f, height * 0.6f, width, 40f), "Press R / Options to restart", centeredStyle);
             return;
         }
 

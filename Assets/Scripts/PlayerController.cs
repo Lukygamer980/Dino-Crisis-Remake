@@ -2,9 +2,10 @@ using System.Collections.Generic;
 using UnityEngine;
 
 // Camera-relative controls: WASD moves in screen directions and the character turns to face
-// where it is heading. Aiming and shooting work while moving. While the same direction is held,
-// the camera basis from when it was pressed is kept, so a hard cut between fixed shots doesn't
-// suddenly flip the controls.
+// where it is heading. Aiming and shooting work while moving. While the same direction stays
+// held (or is pressed again right after letting go), the camera basis from when it was first
+// pressed is kept, so walking through a hard cut between fixed shots doesn't reverse the
+// character; a new direction re-reads the current camera.
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
 {
@@ -13,8 +14,9 @@ public class PlayerController : MonoBehaviour
     public float runSpeed = 4.4f;
     public float aimMoveSpeed = 1.6f;
     public float rotationSpeed = 720f;
-    // How far the held direction may drift before the controls re-read the current camera.
-    public float basisRefreshAngle = 60f;
+    // Letting go of the stick for less than this and pushing the same way again keeps walking
+    // the same way, even if the camera has cut since the direction was first pressed.
+    public float basisHoldAfterRelease = 1f;
 
     [Header("Combat")]
     public int maxHealth = 100;
@@ -39,6 +41,21 @@ public class PlayerController : MonoBehaviour
 
     public string Status => Health > maxHealth * 0.66f ? "FINE" : Health > maxHealth * 0.33f ? "CAUTION" : "DANGER";
 
+    // Any real change of direction after a cut re-reads the camera, since players point the stick
+    // where they want to go on screen; steering in the old basis would come out mirrored. The
+    // tolerance only absorbs thumb wobble on an analog stick.
+    const float BasisRefreshAngle = 25f;
+    // A held basis within this angle of the camera now showing still belongs to the same shot,
+    // so steering just follows the stick instead of snapping to a tracking camera's new angle.
+    const float SameShotAngle = 60f;
+
+    // PlayStation (DualSense / DualShock 4) buttons as the legacy Input Manager numbers them on
+    // macOS and Windows. Xbox pads number their buttons differently.
+    const KeyCode PadRun = KeyCode.JoystickButton0;      // Square
+    const KeyCode PadInteract = KeyCode.JoystickButton1; // Cross
+    const KeyCode PadAim = KeyCode.JoystickButton6;      // L2
+    const KeyCode PadFire = KeyCode.JoystickButton7;     // R2
+
     readonly HashSet<string> items = new();
     CharacterController controller;
     Camera viewCamera;
@@ -47,6 +64,9 @@ public class PlayerController : MonoBehaviour
     Vector3 knockback;
     Vector3 gunRestPosition;
     Vector3 latchedInput;
+    float lastMoveTime = float.NegativeInfinity;
+    int lastMoveFrame = -1;
+    Raptor lockedTarget;
     Quaternion moveBasis = Quaternion.identity;
 
     void Awake()
@@ -66,14 +86,17 @@ public class PlayerController : MonoBehaviour
         GameUI.Instance.SetPrompt(null);
         bool canAct = !IsDead && !inputLocked;
         bool mouseAim = canAct && Input.GetMouseButton(1);
-        bool aiming = mouseAim || (canAct && Input.GetKey(KeyCode.K));
+        bool lockOnAim = canAct && !mouseAim && (Input.GetKey(KeyCode.K) || Input.GetKey(PadAim));
+        bool aiming = mouseAim || lockOnAim;
+        if (!lockOnAim) lockedTarget = null;
 
         if (canAct)
         {
             Vector3 move = ReadMoveInput();
             // Badly hurt characters limp, like the "Danger" state in the originals.
             float limp = Status == "DANGER" ? 0.6f : 1f;
-            float speed = aiming ? aimMoveSpeed : Input.GetKey(KeyCode.LeftShift) ? runSpeed : walkSpeed;
+            bool running = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(PadRun);
+            float speed = aiming ? aimMoveSpeed : running ? runSpeed : walkSpeed;
             motion += move * (speed * limp);
 
             Vector3 aimDirection = aiming ? GetAimDirection(mouseAim, move) : move;
@@ -83,11 +106,12 @@ public class PlayerController : MonoBehaviour
                 transform.rotation = Quaternion.RotateTowards(transform.rotation, look, rotationSpeed * Time.deltaTime);
             }
 
-            bool fire = Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.J) || Input.GetKeyDown(KeyCode.Space);
+            bool fire = Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.J) || Input.GetKeyDown(PadFire);
             if (fire && Time.time >= nextShotTime)
             {
-                if (mouseAim) Shoot(aimDirection, mouseAimAssistAngle);
-                else Shoot(transform.forward, autoAimAngle);
+                // Shoot where the player is steering, not where the body has turned to so far.
+                Vector3 shotDirection = aimDirection.sqrMagnitude > 0.01f ? aimDirection.normalized : transform.forward;
+                Shoot(shotDirection, mouseAim ? mouseAimAssistAngle : autoAimAngle);
             }
 
             if (!aiming) UpdateInteraction();
@@ -104,21 +128,31 @@ public class PlayerController : MonoBehaviour
         if (controller.enabled) controller.Move(motion * Time.deltaTime);
     }
 
-    // Returns the world-space move direction (length up to 1) for the WASD input.
-    Vector3 ReadMoveInput()
+    Vector3 ReadMoveInput() => CameraRelative(new Vector3(Input.GetAxisRaw("Horizontal"), 0f, Input.GetAxisRaw("Vertical")));
+
+    // Turns screen-space input (x right, z up) into a world-space move direction of length up to 1.
+    Vector3 CameraRelative(Vector3 input)
     {
-        Vector3 input = new(Input.GetAxisRaw("Horizontal"), 0f, Input.GetAxisRaw("Vertical"));
-        if (input.sqrMagnitude < 0.01f)
-        {
-            latchedInput = Vector3.zero;
-            return Vector3.zero;
-        }
+        if (input.sqrMagnitude < 0.01f) return Vector3.zero;
         input = Vector3.ClampMagnitude(input, 1f);
 
-        if (latchedInput == Vector3.zero || Vector3.Angle(input, latchedInput) > basisRefreshAngle)
+        bool held = lastMoveFrame == Time.frameCount - 1;
+        bool resumed = Time.time - lastMoveTime <= basisHoldAfterRelease;
+        lastMoveTime = Time.time;
+        lastMoveFrame = Time.frameCount;
+
+        Quaternion shotBasis = CameraBasis();
+        bool steered = Vector3.Angle(input, latchedInput) > BasisRefreshAngle;
+        bool sameShot = Quaternion.Angle(shotBasis, moveBasis) < SameShotAngle;
+        if (latchedInput == Vector3.zero || !resumed || (steered && !(held && sameShot)))
         {
             latchedInput = input;
-            moveBasis = CameraBasis();
+            moveBasis = shotBasis;
+        }
+        else if (held && sameShot)
+        {
+            // Measure later steering from the stick as it was at the last cut, not at the first press.
+            latchedInput = input;
         }
         return moveBasis * input;
     }
@@ -132,8 +166,8 @@ public class PlayerController : MonoBehaviour
         return Quaternion.LookRotation(forward);
     }
 
-    // Mouse aim faces the cursor on the floor; keyboard aim locks on to the nearest raptor ahead
-    // and otherwise turns with the movement, so it still works without a mouse.
+    // Mouse aim faces the cursor on the floor; keyboard and gamepad aim lock on to the nearest raptor
+    // ahead and otherwise turn with the movement, so they still work without a mouse.
     Vector3 GetAimDirection(bool mouseAim, Vector3 move)
     {
         if (mouseAim && viewCamera != null)
@@ -149,9 +183,16 @@ public class PlayerController : MonoBehaviour
             return transform.forward;
         }
 
-        Raptor target = FindAimTarget(transform.forward, autoAimAngle);
-        if (target == null) return move;
-        Vector3 toTarget = target.transform.position - transform.position;
+        // Keep the lock until that raptor dies or gets out of range, so turning toward it doesn't
+        // bring another one into the cone and switch targets.
+        if (lockedTarget != null && (!Raptor.All.Contains(lockedTarget)
+            || Vector3.Distance(lockedTarget.transform.position, transform.position) > shotRange))
+        {
+            lockedTarget = null;
+        }
+        if (lockedTarget == null) lockedTarget = FindAimTarget(transform.forward, autoAimAngle);
+        if (lockedTarget == null) return move;
+        Vector3 toTarget = lockedTarget.transform.position - transform.position;
         toTarget.y = 0f;
         return toTarget.normalized;
     }
@@ -229,8 +270,8 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        GameUI.Instance.SetPrompt(nearest != null ? "[E] " + nearest.Prompt : null);
-        if (nearest != null && Input.GetKeyDown(KeyCode.E)) nearest.Interact(this);
+        GameUI.Instance.SetPrompt(nearest != null ? "[E / Cross] " + nearest.Prompt : null);
+        if (nearest != null && (Input.GetKeyDown(KeyCode.E) || Input.GetKeyDown(PadInteract))) nearest.Interact(this);
     }
 
     public void TakeDamage(int amount, Vector3 fromPosition)

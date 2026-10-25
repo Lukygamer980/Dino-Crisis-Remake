@@ -5548,7 +5548,6 @@ MonoBehaviour:
   runSpeed: 4.4
   aimMoveSpeed: 1.6
   rotationSpeed: 720
-  basisRefreshAngle: 60
   maxHealth: 100
   ammo: 15
   shotDamage: 1
