@@ -37,13 +37,6 @@ public class PlayerController : MonoBehaviour
 
     public string Status => Health > maxHealth * 0.66f ? "FINE" : Health > maxHealth * 0.33f ? "CAUTION" : "DANGER";
 
-    // PlayStation (DualSense / DualShock 4) buttons as the legacy Input Manager numbers them on
-    // macOS and Windows. Xbox pads number their buttons differently.
-    const KeyCode PadRun = KeyCode.JoystickButton0;      // Square
-    const KeyCode PadInteract = KeyCode.JoystickButton1; // Cross
-    const KeyCode PadAim = KeyCode.JoystickButton6;      // L2
-    const KeyCode PadFire = KeyCode.JoystickButton7;     // R2
-
     readonly HashSet<string> items = new();
     CharacterController controller;
     Camera viewCamera;
@@ -68,16 +61,17 @@ public class PlayerController : MonoBehaviour
 
         GameUI.Instance.SetPrompt(null);
         bool canAct = !IsDead && !inputLocked;
-        IsAiming = canAct && (Input.GetMouseButton(1) || Input.GetKey(PadAim));
+        IsAiming = canAct && GameInput.Aim.IsPressed();
 
         if (canAct)
         {
             Quaternion view = CameraYaw();
-            Vector3 input = Vector3.ClampMagnitude(new Vector3(Input.GetAxisRaw("Horizontal"), 0f, Input.GetAxisRaw("Vertical")), 1f);
+            Vector2 stick = GameInput.Move.ReadValue<Vector2>();
+            Vector3 input = Vector3.ClampMagnitude(new Vector3(stick.x, 0f, stick.y), 1f);
             Vector3 move = input.sqrMagnitude < 0.01f ? Vector3.zero : view * input;
             // Badly hurt characters limp, like the "Danger" state in the originals.
             float limp = Status == "DANGER" ? 0.6f : 1f;
-            bool running = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(PadRun);
+            bool running = GameInput.Run.IsPressed();
             float speed = IsAiming ? aimMoveSpeed : running ? runSpeed : walkSpeed;
             motion += move * (speed * limp);
 
@@ -89,8 +83,8 @@ public class PlayerController : MonoBehaviour
             }
 
             // The mouse only shoots while the game has it, so clicking back into the window doesn't fire.
-            bool mouseFire = Cursor.lockState == CursorLockMode.Locked && Input.GetMouseButtonDown(0);
-            bool fire = mouseFire || Input.GetKeyDown(KeyCode.J) || Input.GetKeyDown(PadFire);
+            bool fire = GameInput.Fire.WasPressedThisFrame()
+                && (Cursor.lockState == CursorLockMode.Locked || !GameInput.FromMouse(GameInput.Fire));
             if (fire && Time.time >= nextShotTime) Shoot(IsAiming ? aimAssistAngle : hipFireAssistAngle);
 
             if (!IsAiming) UpdateInteraction();
@@ -126,10 +120,7 @@ public class PlayerController : MonoBehaviour
         }
 
         // Gunshots are loud: every raptor nearby comes to investigate.
-        foreach (Raptor raptor in Raptor.All)
-        {
-            if (Vector3.Distance(raptor.transform.position, transform.position) < 18f) raptor.Alert();
-        }
+        Raptor.MakeNoise(transform.position, 18f);
 
         Vector3 origin = transform.position + Vector3.up * 1.2f;
         Vector3 direction = (AimPoint(origin, assistAngle) - origin).normalized;
@@ -193,7 +184,7 @@ public class PlayerController : MonoBehaviour
         }
 
         GameUI.Instance.SetPrompt(nearest != null ? "[E / Cross] " + nearest.Prompt : null);
-        if (nearest != null && (Input.GetKeyDown(KeyCode.E) || Input.GetKeyDown(PadInteract))) nearest.Interact(this);
+        if (nearest != null && GameInput.Interact.WasPressedThisFrame()) nearest.Interact(this);
     }
 
     public void TakeDamage(int amount, Vector3 fromPosition)

@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 // Third-person camera behind the player, turned with the mouse or the right stick. Holding aim
 // pulls it in over the right shoulder. It moves in front of walls and props instead of clipping
@@ -21,7 +22,7 @@ public class ThirdPersonCamera : MonoBehaviour
     public float aimBlendSpeed = 6f;
 
     [Header("Look")]
-    // Degrees per unit of the "Mouse X/Y" axes, and per second at full right-stick tilt.
+    // Degrees per unit of mouse look (scaled like the legacy "Mouse X/Y" axes), and per second at full right-stick tilt.
     public float mouseSensitivity = 2.5f;
     public float stickSpeed = 170f;
     public float minPitch = -35f;
@@ -79,20 +80,20 @@ public class ThirdPersonCamera : MonoBehaviour
         SetPlayerVisible(currentDistance > hidePlayerDistance);
 
         // In LateUpdate, so the click that gives the game the mouse back doesn't also fire a shot.
-        if (canLook && Cursor.lockState != CursorLockMode.Locked && Input.GetMouseButtonDown(0)) LockCursor();
+        if (canLook && Cursor.lockState != CursorLockMode.Locked && Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame) LockCursor();
     }
 
     void ReadLookInput()
     {
         if (Cursor.lockState == CursorLockMode.Locked)
         {
-            yaw += Input.GetAxis("Mouse X") * mouseSensitivity;
-            pitch -= Input.GetAxis("Mouse Y") * mouseSensitivity;
+            Vector2 mouse = GameInput.Look.ReadValue<Vector2>();
+            yaw += mouse.x * mouseSensitivity;
+            pitch -= mouse.y * mouseSensitivity;
         }
-        // Right stick axes from the Input Manager. A PlayStation pad on macOS reports the right stick
-        // as the 3rd and 4th joystick axes and L2 / R2 as the 5th and 6th (Windows orders them differently).
-        yaw += Input.GetAxis("Look X") * stickSpeed * Time.deltaTime;
-        pitch -= Input.GetAxis("Look Y") * stickSpeed * Time.deltaTime;
+        Vector2 stick = GameInput.LookStick.ReadValue<Vector2>();
+        yaw += stick.x * stickSpeed * Time.deltaTime;
+        pitch -= stick.y * stickSpeed * Time.deltaTime;
         pitch = Mathf.Clamp(pitch, minPitch, maxPitch);
     }
 

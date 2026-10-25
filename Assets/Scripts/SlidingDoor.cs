@@ -1,8 +1,12 @@
 using UnityEngine;
+using UnityEngine.AI;
 
 // A double sliding door in a doorway between two rooms. Its halves slide apart into the wall
 // whenever the player or a raptor comes close, and close again once nobody is near. Local +Z
 // points into the front room. A locked door opens only for a player carrying the required item.
+// The panels are left out of the NavMesh bake; only a locked, shut door carves the doorway out
+// of it, so raptors path through doors they can open and around ones they can't. Opening makes
+// enough noise that a raptor nearby comes to look.
 public class SlidingDoor : MonoBehaviour
 {
     public Transform leftPanel;
@@ -11,6 +15,9 @@ public class SlidingDoor : MonoBehaviour
     // How far each half slides, and how much of that per second.
     public float slideDistance = 0.9f;
     public float slideSpeed = 2.5f;
+    public float noiseRadius = 9f;
+    // Carves the doorway out of the NavMesh while the door is locked shut (assigned by the scene builder).
+    public NavMeshObstacle blocker;
 
     [Header("Rooms on either side")]
     public string frontRoomName = "";
@@ -28,6 +35,7 @@ public class SlidingDoor : MonoBehaviour
     float open;
     int playerSide;
     bool playerWasNear;
+    bool wasOpening;
     bool finished;
 
     void Start()
@@ -46,10 +54,13 @@ public class SlidingDoor : MonoBehaviour
         playerWasNear = playerNear;
 
         bool wantOpen = !locked && (playerNear || RaptorNear());
+        if (wantOpen && !wasOpening && playerNear) Raptor.MakeNoise(transform.position, noiseRadius);
+        wasOpening = wantOpen;
         open = Mathf.MoveTowards(open, wantOpen ? 1f : 0f, slideSpeed * Time.deltaTime);
         float slide = Mathf.SmoothStep(0f, 1f, open) * slideDistance;
         leftPanel.localPosition = leftClosed + Vector3.left * slide;
         rightPanel.localPosition = rightClosed + Vector3.right * slide;
+        if (blocker != null) blocker.enabled = locked && open <= 0f;
 
         TrackPlayerSide();
     }

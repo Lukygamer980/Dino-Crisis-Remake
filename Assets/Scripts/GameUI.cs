@@ -36,7 +36,7 @@ public class GameUI : MonoBehaviour
     void Update()
     {
         damageFlash = Mathf.MoveTowards(damageFlash, 0f, Time.deltaTime * 2f);
-        if (endTitle != null && (Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.JoystickButton9))) SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        if (endTitle != null && GameInput.Restart.WasPressedThisFrame()) SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 
     public void ShowMessage(string text, float seconds = 2.5f)

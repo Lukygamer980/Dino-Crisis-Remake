@@ -1,8 +1,10 @@
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
+using Unity.AI.Navigation;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.Rendering;
 
 // Builds the whole demo level out of primitives. Tweak the layout below and run
@@ -12,10 +14,14 @@ using UnityEngine.Rendering;
 // Rooms sit wall to wall and connect through doorways closed by sliding doors, so the
 // player and the raptors walk between them. A room leaves out a wall it shares with a
 // neighbour, so the two rooms never build the same wall twice.
+//
+// The raptors walk a NavMesh baked from the level's colliders at the end of the build. Characters
+// and door panels are kept out of the bake, so doorways stay walkable.
 public static class SceneBuilder
 {
     const string ScenePath = "Assets/Scenes/DinoDemo.unity";
     const string MaterialFolder = "Assets/Materials";
+    const string NavMeshPath = "Assets/Scenes/DinoDemo NavMesh.asset";
     const float WallHeight = 3.2f;
     const float WallThickness = 0.3f;
     const float DoorwayWidth = 1.8f;
@@ -46,7 +52,7 @@ public static class SceneBuilder
 
         FurnishLoadingDock(dock);
         FurnishCorridor(corridor);
-        FurnishControlRoom(control);
+        FurnishControlRoom(control, corridor);
 
         BuildSlidingDoor(dock, "Door to Corridor", new Vector3(5f, 0f, 6f), 180f, doorSign, corridor.name);
         BuildSlidingDoor(control, "Door to Corridor", new Vector3(0f, 0f, -7f), 0f, doorSign, corridor.name);
@@ -61,6 +67,7 @@ public static class SceneBuilder
         BuildCameraAndUI(player);
 
         Directory.CreateDirectory(Path.GetDirectoryName(ScenePath));
+        BakeNavMesh();
         EditorSceneManager.SaveScene(scene, ScenePath);
         EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
         Debug.Log("Dino demo scene built: " + ScenePath);
@@ -100,7 +107,7 @@ public static class SceneBuilder
         PointLight(room, new Vector3(-1.5f, 2.8f, 6f), new Color(1f, 0.12f, 0.08f), 2.2f, 7f, flicker: true, shadows: false);
     }
 
-    static void FurnishControlRoom(Transform room)
+    static void FurnishControlRoom(Transform room, Transform corridor)
     {
         Box("Desk", room, new Vector3(-4f, 0.45f, 1f), new Vector3(3f, 0.9f, 1.2f), metal);
         Box("Monitor", room, new Vector3(-4.6f, 1.2f, 1.3f), new Vector3(0.9f, 0.6f, 0.08f), screenGlow, collider: false);
@@ -115,7 +122,13 @@ public static class SceneBuilder
         BuildPickup(room, Pickup.Kind.KeyCard, new Vector3(5.5f, 0.88f, 5f), 1);
         BuildPickup(room, Pickup.Kind.Ammo, new Vector3(-5.8f, 0.15f, -5.5f), 10);
 
-        BuildRaptor(room, new Vector3(0.5f, 0f, 4.5f), 200f);
+        // Patrols the control room and out into the corridor.
+        BuildRaptor(room, new Vector3(0.5f, 0f, 4.5f), 200f,
+            Waypoint(room, new Vector3(0.5f, 0f, 4.5f)),
+            Waypoint(room, new Vector3(-4f, 0f, -4f)),
+            Waypoint(corridor, new Vector3(0f, 0f, 4f)),
+            Waypoint(room, new Vector3(4.5f, 0f, -5f)),
+            Waypoint(room, new Vector3(1f, 0f, 1f)));
 
         PointLight(room, new Vector3(0f, 2.9f, 0f), new Color(0.7f, 0.85f, 1f), 1.4f, 11f, flicker: true, shadows: true);
         PointLight(room, new Vector3(-4f, 1.5f, 0.4f), new Color(0.2f, 1f, 0.4f), 0.9f, 3.5f, flicker: false, shadows: false);
@@ -206,6 +219,7 @@ public static class SceneBuilder
             GameObject half = Box(halfName, root, new Vector3(side * DoorwayWidth / 4f, DoorwayHeight / 2f, 0f), halfSize, door);
             // Colliders that move need a kinematic body, or physics treats them as static scenery.
             half.AddComponent<Rigidbody>().isKinematic = true;
+            ExcludeFromNavMesh(half);
             return half.transform;
         }
 
@@ -216,6 +230,16 @@ public static class SceneBuilder
         slidingDoor.slideDistance = DoorwayWidth / 2f + 0.03f;
         slidingDoor.frontRoomName = room.name.ToUpperInvariant();
         slidingDoor.backRoomName = otherRoomName.ToUpperInvariant();
+
+        // Off until the door decides it is locked shut; carving makes the agents path around it.
+        NavMeshObstacle blocker = root.gameObject.AddComponent<NavMeshObstacle>();
+        blocker.shape = NavMeshObstacleShape.Box;
+        blocker.center = new Vector3(0f, DoorwayHeight / 2f, 0f);
+        blocker.size = new Vector3(DoorwayWidth, DoorwayHeight, WallThickness);
+        blocker.carving = true;
+        blocker.carveOnlyStationary = false;
+        blocker.enabled = false;
+        slidingDoor.blocker = blocker;
 
         // On the lintel and a little thicker than the wall, so it shows from both rooms.
         Box("Sign", root, new Vector3(0f, DoorwayHeight + 0.2f, 0f), new Vector3(0.7f, 0.08f, WallThickness + 0.04f), signMaterial, collider: false);
@@ -288,10 +312,20 @@ public static class SceneBuilder
         player.gunModel = gun.transform;
         player.gunPoint = gunPoint;
         player.muzzleFlash = flash;
+        ExcludeFromNavMesh(root);
         return player;
     }
 
-    static void BuildRaptor(Transform room, Vector3 localPosition, float yaw)
+    // An empty marker a raptor patrols to, parented to the room it is in.
+    static Transform Waypoint(Transform room, Vector3 localPosition)
+    {
+        Transform point = new GameObject("Patrol Point").transform;
+        point.SetParent(room, false);
+        point.localPosition = localPosition;
+        return point;
+    }
+
+    static void BuildRaptor(Transform room, Vector3 localPosition, float yaw, params Transform[] waypoints)
     {
         GameObject root = new("Velociraptor");
         root.transform.SetParent(room, false);
@@ -317,7 +351,32 @@ public static class SceneBuilder
             Part(PrimitiveType.Cube, "Arm", t, new Vector3(0.18f * side, 0.95f, 0.6f), new Vector3(30f, 0f, 0f), new Vector3(0.06f, 0.25f, 0.06f), raptorDark);
         }
 
-        root.AddComponent<Raptor>();
+        NavMeshAgent agent = root.AddComponent<NavMeshAgent>();
+        agent.radius = 0.45f;
+        agent.height = 1.6f;
+        agent.acceleration = 20f;
+        agent.stoppingDistance = 0.2f;
+        ExcludeFromNavMesh(root);
+
+        root.AddComponent<Raptor>().waypoints = waypoints;
+    }
+
+    // ---------- Navigation ----------
+
+    // Keeps an object and its children out of the bake, so its collider doesn't punch a hole in the NavMesh.
+    static void ExcludeFromNavMesh(GameObject target) => target.AddComponent<NavMeshModifier>().ignoreFromBuild = true;
+
+    // Bakes the walkable floor from the level's colliders and saves it as an asset next to the
+    // scene, so the scene keeps it after a reload.
+    static void BakeNavMesh()
+    {
+        NavMeshSurface surface = new GameObject("NavMesh").AddComponent<NavMeshSurface>();
+        surface.collectObjects = CollectObjects.All;
+        surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
+        surface.BuildNavMesh();
+
+        AssetDatabase.DeleteAsset(NavMeshPath);
+        AssetDatabase.CreateAsset(surface.navMeshData, NavMeshPath);
     }
 
     static void BuildCameraAndUI(PlayerController player)
