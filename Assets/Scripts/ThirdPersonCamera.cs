@@ -84,7 +84,15 @@ public class ThirdPersonCamera : MonoBehaviour
         SetPlayerVisible(currentDistance > hidePlayerDistance);
 
         // In LateUpdate, so the click that gives the game the mouse back doesn't also fire a shot.
-        if (canLook && Cursor.lockState != CursorLockMode.Locked && Input.GetMouseButtonDown(0)) LockCursor();
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
+        else if (canLook && Cursor.lockState != CursorLockMode.Locked && Input.GetMouseButtonDown(0))
+        {
+            LockCursor();
+        }
     }
 
     void ReadLookInput()

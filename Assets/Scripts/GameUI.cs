@@ -12,7 +12,7 @@ public class GameUI : MonoBehaviour
 
     const string ControlsHelp =
         "Mouse / right stick look   WASD / left stick move   Shift / Square run   E / Cross interact\n" +
-        "Hold right mouse / L2 to aim over the shoulder   Left mouse / J / R2 shoots, even on the move";
+        "Hold right mouse / L2 to aim over the shoulder   Left mouse / J / R2 shoots, even on the move   Esc releases the mouse";
 
     float fadeAlpha = 1f;
     float damageFlash;
