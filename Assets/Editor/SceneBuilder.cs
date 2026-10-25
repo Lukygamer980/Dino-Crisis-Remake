@@ -25,11 +25,13 @@ using UnityEngine.Rendering;
 //
 // The lock flow: the Backup Power Area key in Material Storage opens the gate to the generator
 // passage, and switching the generator on powers the door into the building. The Office
-// Hallway's laser shutter blocks the way on, so the player goes through the duct to the west
-// wing. The Management Office (the safe room) has the console that releases the laser shutters
-// and the entrance key; the entrance key opens the plaza in front of the Main Entrance, where the
-// code disk N lies; the disk opens the Elevator Hall. The elevator down to B1 is the goal: the
-// prototype says there that the game doesn't continue yet.
+// Hallway's laser shutter blocks the way on, so the player goes through duct A, which comes out
+// by the Main Entrance and in the west wing. The Management Office (the safe room) has the entrance
+// key and the console that releases the laser shutters, which opens shortcuts between the wings.
+// The entrance key opens the plaza in front of the Main Entrance, where the code disk N lies; the
+// disk opens the Elevator Hall. The elevator down to B1 is the goal: the prototype says there that
+// the game doesn't continue yet. The Strategy Room, the Control Room lift, the stairs down and
+// the doors out of the floor stay locked, as their keys belong to later parts of the game.
 //
 // The raptors walk a NavMesh baked from the level's colliders at the end of the build. Characters,
 // ceilings and door panels are kept out of the bake, so doorways stay walkable.

@@ -12,6 +12,7 @@ public class Vent : Interactable
 
     public override void Interact(PlayerController player)
     {
+        if (exit == null) return;
         Vector3 arrival = exit.transform.position + exit.transform.forward * 1.1f;
         arrival.y = 0f;
         player.Teleport(arrival, Quaternion.LookRotation(exit.transform.forward));
