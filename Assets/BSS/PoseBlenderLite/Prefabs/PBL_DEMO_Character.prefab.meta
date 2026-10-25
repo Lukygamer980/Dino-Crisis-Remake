@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: 7767abb8996426640847d1743f867009
+PrefabImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Prefabs/PBL_DEMO_Character.prefab
+  uploadId: 822108

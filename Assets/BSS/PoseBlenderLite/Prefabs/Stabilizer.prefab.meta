@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: 19528a7459fd15845b4e5a1aa6909c67
+PrefabImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Prefabs/Stabilizer.prefab
+  uploadId: 822108

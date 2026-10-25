@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor;
 using System;
+using System.IO;
+using System.Reflection;
 
-namespace UnityTechnologies.ParticlePack
-{
 [CustomEditor(typeof(Readme))]
 [InitializeOnLoad]
 public class ReadmeEditor : Editor {
@@ -26,28 +26,39 @@ public class ReadmeEditor : Editor {
 			var readme = SelectReadme();
 			SessionState.SetBool(kShowedReadmeSessionStateName, true);
 			
-			if (readme)
+			if (readme && !readme.loadedLayout)
+			{
+				LoadLayout();
 				readme.loadedLayout = true;
-		}
+			}
+		} 
 	}
-
-	[MenuItem("Tutorial/Show Tutorial Instructions")]
-	static Readme SelectReadme()
+	
+	static void LoadLayout()
 	{
-		// Other templates may ship their own "Readme" type, so only accept ours.
-		foreach (var id in AssetDatabase.FindAssets("Readme t:Readme"))
+		var assembly = typeof(EditorApplication).Assembly; 
+		var windowLayoutType = assembly.GetType("UnityEditor.WindowLayout", true);
+		var method = windowLayoutType.GetMethod("LoadWindowLayout", BindingFlags.Public | BindingFlags.Static);
+		method.Invoke(null, new object[]{Path.Combine(Application.dataPath, "TutorialInfo/Layout.wlt"), false});
+	}
+	
+	[MenuItem("Tutorial/Show Tutorial Instructions")]
+	static Readme SelectReadme() 
+	{
+		var ids = AssetDatabase.FindAssets("Readme t:Readme");
+		if (ids.Length == 1)
 		{
-			var readme = AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GUIDToAssetPath(id)) as Readme;
-			if (readme == null)
-				continue;
-
-			Selection.objects = new UnityEngine.Object[]{readme};
-
-			return readme;
+			var readmeObject = AssetDatabase.LoadMainAssetAtPath(AssetDatabase.GUIDToAssetPath(ids[0]));
+			
+			Selection.objects = new UnityEngine.Object[]{readmeObject};
+			
+			return (Readme)readmeObject;
 		}
-
-		Debug.Log("Couldn't find a readme");
-		return null;
+		else
+		{
+			Debug.Log("Couldn't find a readme");
+			return null;
+		}
 	}
 	
 	protected override void OnHeaderGUI()
@@ -143,6 +154,5 @@ public class ReadmeEditor : Editor {
 
 		return GUI.Button (position, label, LinkStyle);
 	}
-}
 }
 

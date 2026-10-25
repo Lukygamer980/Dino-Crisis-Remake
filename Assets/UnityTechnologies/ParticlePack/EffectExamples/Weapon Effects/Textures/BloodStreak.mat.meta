@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: ddbf6b46e8fa6432eb8ed7e118101b23
+timeCreated: 1474384978
+licenseType: Store
+NativeFormatImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 73777
+  packageName: Legacy Particle Pack
+  packageVersion: 6.0
+  assetPath: Assets/UnityTechnologies/ParticlePack/EffectExamples/Weapon Effects/Textures/BloodStreak.mat
+  uploadId: 871050

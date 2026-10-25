@@ -1,0 +1,18 @@
+fileFormatVersion: 2
+guid: 93f2a213c86040f4fa34881f60ddd85a
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 50
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Scripts/StabilizerLite.cs
+  uploadId: 822108

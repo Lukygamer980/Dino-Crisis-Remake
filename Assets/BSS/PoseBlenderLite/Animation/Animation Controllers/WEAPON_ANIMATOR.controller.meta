@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: a96d03b6b675b3b44b19decc27d0dc99
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 9100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Animation/Animation Controllers/WEAPON_ANIMATOR.controller
+  uploadId: 822108

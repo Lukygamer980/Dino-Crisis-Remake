@@ -28,7 +28,7 @@ namespace BzKovSoft.RagdollTemplate.Scripts.Charachter
 				_firstAnimatorFrame = true;
 		}
 
-		protected override Vector3 PlayerVelocity { get { return _rigidbody.velocity; } }
+		protected override Vector3 PlayerVelocity { get { return _rigidbody.linearVelocity; } }
 
 		protected override void ApplyCapsuleHeight()
 		{
@@ -94,14 +94,14 @@ namespace BzKovSoft.RagdollTemplate.Scripts.Charachter
 			Vector3 finalVelocity = deltaPos / Time.deltaTime;
 			if (!_jumpPressed)
 			{
-				finalVelocity.y = _rigidbody.velocity.y;
+				finalVelocity.y = _rigidbody.linearVelocity.y;
 			}
 			else
 			{
 				_jumpStartedTime = Time.time;
 			}
 			_airVelocity = finalVelocity;		// i need this to correctly detect player velocity in air mode
-			_rigidbody.velocity = finalVelocity;
+			_rigidbody.linearVelocity = finalVelocity;
 		}
 	}
 }

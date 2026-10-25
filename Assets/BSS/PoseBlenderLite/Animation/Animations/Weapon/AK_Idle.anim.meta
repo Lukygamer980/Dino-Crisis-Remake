@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 6c7b3aff438340e4c9c04e3a2198d365
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 7400000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Animation/Animations/Weapon/AK_Idle.anim
+  uploadId: 822108

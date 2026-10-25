@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 37a06897c1055084c801f89ad3344fe2
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 22100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Animation/Animation Controllers/PBL_Pose_Animation_OverrideController.overrideController
+  uploadId: 822108

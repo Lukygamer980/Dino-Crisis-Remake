@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: bd265edd33357ba4aaba9a0238b2fee9
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 7400000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Animation/Animations/Weapon/AK_Inspect.anim
+  uploadId: 822108

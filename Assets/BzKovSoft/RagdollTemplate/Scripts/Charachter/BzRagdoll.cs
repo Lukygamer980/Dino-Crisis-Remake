@@ -121,7 +121,7 @@ namespace BzKovSoft.RagdollTemplate.Scripts.Charachter
 		void FixedUpdate()
 		{
 			if (_state == RagdollState.WaitStablePosition &&
-				_hipsTransformRigid.velocity.magnitude < 0.1f)
+				_hipsTransformRigid.linearVelocity.magnitude < 0.1f)
 			{
 				GetUp();
 			}
@@ -359,7 +359,7 @@ namespace BzKovSoft.RagdollTemplate.Scripts.Charachter
 		private void ApplyVelocity(Vector3 predieVelocity)
 		{
 			foreach (var rigid in _rigids)
-				rigid.RigidBody.velocity = predieVelocity;
+				rigid.RigidBody.linearVelocity = predieVelocity;
 		}
 
 		private void ActivateRagdollParts(bool activate)
@@ -376,7 +376,7 @@ namespace BzKovSoft.RagdollTemplate.Scripts.Charachter
 				{
 					const string colliderNodeSufix = "_ColliderRotator";
 					string childName = rigid.RigidBody.name + colliderNodeSufix;
-					Transform transform = rigid.RigidBody.transform.FindChild(childName);
+					Transform transform = rigid.RigidBody.transform.Find(childName);
 					partColider = transform.GetComponent<Collider>();
 				}
 

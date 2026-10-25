@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 084e3af7e3add8f4987ebcab7e538230
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 7400000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Animation/Animations/Character/BSS_T_Pose.anim
+  uploadId: 822108

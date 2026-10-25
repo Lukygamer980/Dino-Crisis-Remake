@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 2a39cccbf6e0bde48bce9456fb96efa7
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 9100000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Animation/Animation Controllers/PBL_Simple_Animation_Controller.controller
+  uploadId: 822108

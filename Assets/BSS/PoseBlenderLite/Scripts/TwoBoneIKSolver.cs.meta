@@ -1,0 +1,9 @@
+fileFormatVersion: 2
+guid: ffea0f18e29d185419e7e1c67947b2e5
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Scripts/TwoBoneIKSolver.cs
+  uploadId: 822108

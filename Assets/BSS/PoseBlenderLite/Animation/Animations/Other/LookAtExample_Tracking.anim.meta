@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 6b84b04bb35fb8e4e985cd6e8a0ff3f3
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 7400000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Animation/Animations/Other/LookAtExample_Tracking.anim
+  uploadId: 822108

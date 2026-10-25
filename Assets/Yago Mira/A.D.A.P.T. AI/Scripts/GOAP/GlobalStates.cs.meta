@@ -1,0 +1,18 @@
+fileFormatVersion: 2
+guid: 7da62b6168ec7574c9432cfbdcc3d4fe
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 241029
+  packageName: A.D.A.P.T. AI
+  packageVersion: 1.0.0
+  assetPath: Assets/Yago Mira/A.D.A.P.T. AI/Scripts/GOAP/GlobalStates.cs
+  uploadId: 555788

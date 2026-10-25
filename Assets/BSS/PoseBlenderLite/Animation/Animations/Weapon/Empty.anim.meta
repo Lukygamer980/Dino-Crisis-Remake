@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: 01dc61aed5e22ab498cbad97e55d3905
+NativeFormatImporter:
+  externalObjects: {}
+  mainObjectFileID: 7400000
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 313357
+  packageName: Pose Blender Lite
+  packageVersion: 2.1.0
+  assetPath: Assets/BSS/PoseBlenderLite/Animation/Animations/Weapon/Empty.anim
+  uploadId: 822108
