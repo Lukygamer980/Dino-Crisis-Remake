@@ -29,9 +29,10 @@ public static class PlayerAnimatorBuilder
         string hit = Clip("Hit Reaction.fbx", loop: false);
         string dead = Clip("Dying.fbx", loop: false);
 
-        if (AssetDatabase.LoadAssetAtPath<AnimatorController>(ControllerPath) != null)
-            AssetDatabase.DeleteAsset(ControllerPath);
-        AnimatorController controller = AnimatorController.CreateAnimatorControllerAtPath(ControllerPath);
+        // Rebuild in place: deleting the asset would give it a new GUID and leave the scene's Animator empty.
+        AnimatorController controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(ControllerPath);
+        if (controller == null) controller = AnimatorController.CreateAnimatorControllerAtPath(ControllerPath);
+        else Clear(controller);
         controller.AddParameter("Speed", AnimatorControllerParameterType.Float);
         controller.AddParameter("Strafe", AnimatorControllerParameterType.Float);
         controller.AddParameter("IsAiming", AnimatorControllerParameterType.Bool);
@@ -41,7 +42,8 @@ public static class PlayerAnimatorBuilder
         controller.AddParameter("Dead", AnimatorControllerParameterType.Trigger);
 
         AnimatorStateMachine machine = controller.layers[0].stateMachine;
-        AnimatorState free = State(controller, machine, "Free", Tree(controller, "Free", Load(idle), 0f, Load(walk), 2.2f, Load(run), 3.3f, 1.45f));
+        // Running covers 3.6 m/s at 1x, so 1.2x matches the 4.4 m/s sprint without the feet skating.
+        AnimatorState free = State(controller, machine, "Free", Tree(controller, "Free", Load(idle), 0f, Load(walk), 2.2f, Load(run), 3.3f, 1.2f));
         AnimatorState hurt = State(controller, machine, "Hurt", Tree(controller, "Hurt", Load(idle), 0f, Load(walk), 1.4f, Load(limp), 2.6f, 1f));
         AnimatorState aim = State(controller, machine, "Aim", AimTree(controller, Load(aimIdle), Load(aimWalk), Load(aimRun), Load(aimBack), Load(aimLeft), Load(aimRight)));
         AnimatorState shooting = OneShot(machine, "Shoot", Load(shoot));
@@ -58,14 +60,27 @@ public static class PlayerAnimatorBuilder
         Link(free, hurt, "Danger", on: true);
         Link(hurt, free, "Danger", on: false);
 
-        Any(machine, deadState, "Dead");
-        Any(machine, hitState, "Hit");
-        Any(machine, shooting, "Fire");
-        Return(shooting, free, aim);
-        Return(hitState, free, aim);
+        // Hit and Fire restart their clip, so a second trigger is used at once and not left
+        // pending, where it would later pull Eve out of Dead.
+        Any(machine, deadState, "Dead", toSelf: false);
+        Any(machine, hitState, "Hit", toSelf: true);
+        Any(machine, shooting, "Fire", toSelf: true);
+        Return(shooting, free, hurt, aim);
+        Return(hitState, free, hurt, aim);
 
         EditorUtility.SetDirty(controller);
         AssetDatabase.SaveAssets();
+    }
+
+    static void Clear(AnimatorController controller)
+    {
+        foreach (Object asset in AssetDatabase.LoadAllAssetsAtPath(ControllerPath))
+        {
+            if (asset != controller) Object.DestroyImmediate(asset, true);
+        }
+        controller.layers = new AnimatorControllerLayer[0];
+        controller.parameters = new AnimatorControllerParameter[0];
+        controller.AddLayer("Base Layer");
     }
 
     static string Clip(string file, bool loop)
@@ -115,8 +130,7 @@ public static class PlayerAnimatorBuilder
         tree.AddChild(a, aAt);
         tree.AddChild(b, bAt);
         tree.AddChild(c, cAt);
-        tree.minThreshold = aAt;
-        tree.maxThreshold = cAt;
+        // No minThreshold/maxThreshold here: setting them spreads the thresholds evenly again.
         if (lastTimeScale != 1f)
         {
             ChildMotion[] children = tree.children;
@@ -143,8 +157,9 @@ public static class PlayerAnimatorBuilder
         tree.AddChild(back, new Vector2(0f, -1.6f));
         tree.AddChild(left, new Vector2(-1.6f, 0f));
         tree.AddChild(right, new Vector2(1.6f, 0f));
+        // Pistol Run covers 2.95 m/s at 1x. Aimed movement is capped at aimMoveSpeed, so this only shows up under knockback.
         ChildMotion[] children = tree.children;
-        children[2].timeScale = 1.45f;
+        children[2].timeScale = 1.1f;
         tree.children = children;
         AssetDatabase.AddObjectToAsset(tree, controller);
         return tree;
@@ -172,17 +187,25 @@ public static class PlayerAnimatorBuilder
         transition.AddCondition(on ? AnimatorConditionMode.If : AnimatorConditionMode.IfNot, 0f, parameter);
     }
 
-    static void Any(AnimatorStateMachine machine, AnimatorState to, string trigger)
+    static void Any(AnimatorStateMachine machine, AnimatorState to, string trigger, bool toSelf)
     {
         AnimatorStateTransition transition = machine.AddAnyStateTransition(to);
         transition.hasExitTime = false;
         transition.duration = 0.05f;
-        transition.canTransitionToSelf = false;
+        transition.canTransitionToSelf = toSelf;
         transition.AddCondition(AnimatorConditionMode.If, 0f, trigger);
     }
 
-    static void Return(AnimatorState from, AnimatorState free, AnimatorState aim)
+    // Hurt comes before Free, otherwise a badly hurt Eve runs normally for a moment after each hit.
+    static void Return(AnimatorState from, AnimatorState free, AnimatorState hurt, AnimatorState aim)
     {
+        AnimatorStateTransition toHurt = from.AddTransition(hurt);
+        toHurt.hasExitTime = true;
+        toHurt.exitTime = 0.85f;
+        toHurt.duration = 0.1f;
+        toHurt.AddCondition(AnimatorConditionMode.IfNot, 0f, "IsAiming");
+        toHurt.AddCondition(AnimatorConditionMode.If, 0f, "Danger");
+
         AnimatorStateTransition toFree = from.AddTransition(free);
         toFree.hasExitTime = true;
         toFree.exitTime = 0.85f;

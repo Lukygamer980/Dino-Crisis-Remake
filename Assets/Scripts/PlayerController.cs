@@ -231,7 +231,16 @@ public class PlayerController : MonoBehaviour
         away.y = 0f;
         knockback = away.normalized * 6f;
         GameUI.Instance.FlashDamage();
-        if (animator != null) animator.SetTrigger(IsDead ? "Dead" : "Hit");
+        if (animator != null)
+        {
+            // A Hit or Fire still pending would leave Dead through Any State and stand her back up.
+            if (IsDead)
+            {
+                animator.ResetTrigger("Hit");
+                animator.ResetTrigger("Fire");
+            }
+            animator.SetTrigger(IsDead ? "Dead" : "Hit");
+        }
 
         if (IsDead)
         {

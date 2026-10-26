@@ -823,24 +823,16 @@ public static class SceneBuilder
         animator.runtimeAnimatorController = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(PlayerAnimatorBuilder.ControllerPath);
         animator.applyRootMotion = false;
 
-        Transform hand = FindBone(model.transform, "RightHand");
+        // In the Mixamo hand the fingers point along +Y and the back of the hand along -Z, so the
+        // barrel goes along +Y with the slide on top. The hand has unit scale; the gun keeps its own.
+        Transform hand = animator.GetBoneTransform(HumanBodyBones.RightHand);
         if (hand != null)
         {
             gun.SetParent(hand, false);
-            gun.localPosition = new Vector3(0f, 0.04f, 0.02f);
-            gun.localRotation = Quaternion.Euler(0f, 90f, 90f);
-            gun.localScale = Vector3.one * 0.4f;
+            gun.localPosition = new Vector3(0f, 0.1f, -0.04f);
+            gun.localRotation = Quaternion.Euler(-90f, 0f, 0f);
         }
         return animator;
-    }
-
-    static Transform FindBone(Transform root, string bone)
-    {
-        foreach (Transform child in root.GetComponentsInChildren<Transform>())
-        {
-            if (child.name.EndsWith(bone)) return child;
-        }
-        return null;
     }
 
     // An ambush raptor starts inactive and appears when the generator is switched on. It patrols
