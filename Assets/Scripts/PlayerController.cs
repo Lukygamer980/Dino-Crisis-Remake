@@ -28,6 +28,7 @@ public class PlayerController : MonoBehaviour
     public Transform gunModel;
     public Transform gunPoint;
     public Light muzzleFlash;
+    public Animator animator;
 
     [HideInInspector] public bool inputLocked;
 
@@ -90,7 +91,8 @@ public class PlayerController : MonoBehaviour
             if (!IsAiming) UpdateInteraction();
         }
 
-        if (gunModel != null)
+        // The pistol pose lives in the animation once Eve is on. The primitive gun still lifts by hand.
+        if (gunModel != null && animator == null)
         {
             Vector3 raised = gunRestPosition + new Vector3(-0.04f, 0.3f, 0.2f);
             gunModel.localPosition = Vector3.Lerp(gunModel.localPosition, IsAiming ? raised : gunRestPosition, 15f * Time.deltaTime);
@@ -99,6 +101,20 @@ public class PlayerController : MonoBehaviour
         verticalVelocity = controller.isGrounded ? -1f : verticalVelocity - 20f * Time.deltaTime;
         motion.y = verticalVelocity;
         if (controller.enabled) controller.Move(motion * Time.deltaTime);
+        DriveAnimator();
+    }
+
+    // Speed is metres per second along the facing when aiming, otherwise the travel speed.
+    // Strafe is only used by the pistol blend, because free movement turns the body to face the step.
+    void DriveAnimator()
+    {
+        if (animator == null) return;
+        Vector3 velocity = controller.velocity;
+        velocity.y = 0f;
+        animator.SetFloat("Speed", IsAiming ? Vector3.Dot(velocity, transform.forward) : velocity.magnitude);
+        animator.SetFloat("Strafe", IsAiming ? Vector3.Dot(velocity, transform.right) : 0f);
+        animator.SetBool("IsAiming", IsAiming);
+        animator.SetBool("Danger", Status == "DANGER");
     }
 
     Quaternion CameraYaw() => viewCamera != null ? Quaternion.Euler(0f, viewCamera.transform.eulerAngles.y, 0f) : transform.rotation;
@@ -112,6 +128,7 @@ public class PlayerController : MonoBehaviour
             return;
         }
         ammo--;
+        if (animator != null) animator.SetTrigger("Fire");
         if (muzzleFlash != null)
         {
             muzzleFlash.enabled = true;
@@ -214,11 +231,12 @@ public class PlayerController : MonoBehaviour
         away.y = 0f;
         knockback = away.normalized * 6f;
         GameUI.Instance.FlashDamage();
+        if (animator != null) animator.SetTrigger(IsDead ? "Dead" : "Hit");
 
         if (IsDead)
         {
             GameUI.Instance.SetPrompt(null);
-            transform.Rotate(-80f, 0f, 0f);
+            if (animator == null) transform.Rotate(-80f, 0f, 0f);
             GameUI.Instance.GameOver();
         }
     }

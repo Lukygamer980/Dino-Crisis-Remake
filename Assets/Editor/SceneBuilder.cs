@@ -771,10 +771,8 @@ public static class SceneBuilder
         controller.height = 1.7f;
         controller.radius = 0.3f;
 
-        Part(PrimitiveType.Capsule, "Body", root.transform, new Vector3(0f, 0.75f, 0f), Vector3.zero, new Vector3(0.5f, 0.75f, 0.35f), suit);
-        Part(PrimitiveType.Sphere, "Head", root.transform, new Vector3(0f, 1.58f, 0f), Vector3.zero, Vector3.one * 0.27f, skin);
-        Part(PrimitiveType.Sphere, "Hair", root.transform, new Vector3(0f, 1.64f, -0.03f), Vector3.zero, new Vector3(0.3f, 0.22f, 0.3f), hair);
         GameObject gun = Part(PrimitiveType.Cube, "Handgun", root.transform, new Vector3(0.24f, 0.95f, 0.12f), Vector3.zero, new Vector3(0.07f, 0.1f, 0.28f), gunMetal);
+        Animator animator = AttachEve(root.transform, gun.transform);
 
         Transform gunPoint = new GameObject("Gun Point").transform;
         gunPoint.SetParent(gun.transform, false);
@@ -799,8 +797,50 @@ public static class SceneBuilder
         player.gunModel = gun.transform;
         player.gunPoint = gunPoint;
         player.muzzleFlash = flash;
+        player.animator = animator;
         ExcludeFromNavMesh(root);
         return player;
+    }
+
+    // Eve replaces the capsule body. The handgun sits on the Mixamo right-hand bone, so it follows
+    // the pistol clips. Without the model, the old capsule body is built instead.
+    static Animator AttachEve(Transform player, Transform gun)
+    {
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PlayerAnimatorBuilder.ModelPath);
+        if (prefab == null)
+        {
+            Part(PrimitiveType.Capsule, "Body", player, new Vector3(0f, 0.75f, 0f), Vector3.zero, new Vector3(0.5f, 0.75f, 0.35f), suit);
+            Part(PrimitiveType.Sphere, "Head", player, new Vector3(0f, 1.58f, 0f), Vector3.zero, Vector3.one * 0.27f, skin);
+            Part(PrimitiveType.Sphere, "Hair", player, new Vector3(0f, 1.64f, -0.03f), Vector3.zero, new Vector3(0.3f, 0.22f, 0.3f), hair);
+            return null;
+        }
+
+        PlayerAnimatorBuilder.Build();
+        GameObject model = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+        model.name = "Eve";
+        model.transform.SetParent(player, false);
+        Animator animator = model.GetComponent<Animator>();
+        animator.runtimeAnimatorController = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(PlayerAnimatorBuilder.ControllerPath);
+        animator.applyRootMotion = false;
+
+        Transform hand = FindBone(model.transform, "RightHand");
+        if (hand != null)
+        {
+            gun.SetParent(hand, false);
+            gun.localPosition = new Vector3(0f, 0.04f, 0.02f);
+            gun.localRotation = Quaternion.Euler(0f, 90f, 90f);
+            gun.localScale = Vector3.one * 0.4f;
+        }
+        return animator;
+    }
+
+    static Transform FindBone(Transform root, string bone)
+    {
+        foreach (Transform child in root.GetComponentsInChildren<Transform>())
+        {
+            if (child.name.EndsWith(bone)) return child;
+        }
+        return null;
     }
 
     // An ambush raptor starts inactive and appears when the generator is switched on. It patrols
