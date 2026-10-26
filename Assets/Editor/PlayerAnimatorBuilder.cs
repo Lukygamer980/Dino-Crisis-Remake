@@ -41,8 +41,8 @@ public static class PlayerAnimatorBuilder
         controller.AddParameter("Dead", AnimatorControllerParameterType.Trigger);
 
         AnimatorStateMachine machine = controller.layers[0].stateMachine;
-        AnimatorState free = State(controller, machine, "Free", Tree(controller, "Free", Load(idle), 0f, Load(walk), 2.2f, Load(run), 3.3f));
-        AnimatorState hurt = State(controller, machine, "Hurt", Tree(controller, "Hurt", Load(idle), 0f, Load(walk), 1.4f, Load(limp), 2.6f));
+        AnimatorState free = State(controller, machine, "Free", Tree(controller, "Free", Load(idle), 0f, Load(walk), 2.2f, Load(run), 3.3f, 1.45f));
+        AnimatorState hurt = State(controller, machine, "Hurt", Tree(controller, "Hurt", Load(idle), 0f, Load(walk), 1.4f, Load(limp), 2.6f, 1f));
         AnimatorState aim = State(controller, machine, "Aim", AimTree(controller, Load(aimIdle), Load(aimWalk), Load(aimRun), Load(aimBack), Load(aimLeft), Load(aimRight)));
         AnimatorState shooting = OneShot(machine, "Shoot", Load(shoot));
         AnimatorState hitState = OneShot(machine, "Hit", Load(hit));
@@ -103,7 +103,7 @@ public static class PlayerAnimatorBuilder
         return null;
     }
 
-    static BlendTree Tree(AnimatorController controller, string name, AnimationClip a, float aAt, AnimationClip b, float bAt, AnimationClip c, float cAt)
+    static BlendTree Tree(AnimatorController controller, string name, AnimationClip a, float aAt, AnimationClip b, float bAt, AnimationClip c, float cAt, float lastTimeScale)
     {
         var tree = new BlendTree
         {
@@ -115,14 +115,14 @@ public static class PlayerAnimatorBuilder
         tree.AddChild(a, aAt);
         tree.AddChild(b, bAt);
         tree.AddChild(c, cAt);
-        // Sprint is 4.4 m/s. The run clip has to own everything above a brisk walk, or the two
-        // cycles blend and the ankles swim. The clip itself is a jog, so it plays a bit faster.
-        tree.useAutomaticThresholds = false;
-        tree.minThreshold = 0f;
-        tree.maxThreshold = 4.4f;
-        ChildMotion[] children = tree.children;
-        children[2].timeScale = 1.45f;
-        tree.children = children;
+        tree.minThreshold = aAt;
+        tree.maxThreshold = cAt;
+        if (lastTimeScale != 1f)
+        {
+            ChildMotion[] children = tree.children;
+            children[2].timeScale = lastTimeScale;
+            tree.children = children;
+        }
         AssetDatabase.AddObjectToAsset(tree, controller);
         return tree;
     }
