@@ -23,9 +23,23 @@ public class LocomotionProfile : ScriptableObject
     public float crouchWalk = 1f;
     public float crouchAimWalk = 0.8f;
 
+    // Which unarmed clips the Animator has, and the speeds they cover at their own pace.
+    [System.Serializable]
+    public struct UnarmedClips
+    {
+        public float run;
+        public float crouchWalk;
+        // True while a pistol-pack crouch stands in for the missing unarmed crouch clips.
+        public bool crouchStandIn;
+        // True when Mixamo quarter turns are in, so standing turns play them.
+        public bool quickTurns;
+    }
+
     [Header("Pistol holstered")]
     public float holsteredWalk = 1.13f;
-    public float holsteredRun = 4.4f;
+    // The unarmed run at its own pace; PlayerController.unarmedSprintSpeed may go faster.
+    public float holsteredRun = 3.07f;
+    public UnarmedClips unarmed = new() { run = 3.07f, crouchWalk = 1f, crouchStandIn = true };
 
     [Header("Badly hurt")]
     public float hurtWalk = 0.6f;

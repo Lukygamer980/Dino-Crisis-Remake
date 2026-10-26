@@ -30,6 +30,27 @@ public static class PlayerAnimatorBuilder
     const string HolsterAndFire = Pack + "/Animation/Holster_and_Fire/";
     const string AimOffsets = Pack + "/Animation/Aim_Offsets/";
     const string Mixamo = "Assets/Characters/Player/animations/";
+
+    // Unarmed clips (pistol holstered), Mixamo, in Assets/Characters/Player/animations. To swap one,
+    // replace the file under the same name (or change the name here) and run
+    // Dino Demo > Build Player Animator: speeds, the first step's hand-over and the gaits are measured
+    // from the clips again. Download from Mixamo as FBX for Unity, Without Skin, 30 fps, and leave
+    // In Place unticked: the builder measures each stride from the root's travel.
+    const string UnarmedIdle = "Idle.fbx";
+    const string UnarmedStart = "Female Start Walking.fbx";
+    const string UnarmedWalk = "Female Walk.fbx";
+    const string UnarmedRun = "Running.fbx";
+    // Optional unarmed clips. While a file is missing, a pistol-pack clip stands in for it, with the
+    // arms overridden by the unarmed idle so she doesn't hold an invisible pistol.
+    const string UnarmedCrouchIdle = "Crouch Idle.fbx";
+    const string UnarmedCrouchWalk = "Crouched Walking.fbx";
+    const string UnarmedTurnLeft = "Left Turn 90.fbx";
+    const string UnarmedTurnRight = "Right Turn 90.fbx";
+    // Eve wears high heels, so any bend of the foot up past her neutral pose reads as a broken ankle.
+    // Her avatar lets the foot bend up only this far and twist only this far (degrees; Unity's
+    // defaults are 50 and 30).
+    const float FootUpLimit = 25f;
+    const float FootTwistLimit = 12f;
     const string Generated = "Assets/Characters/Player/Generated";
 
     // Speeds that are a design choice, not a clip's own pace. Raptors chase at 4.7 m/s.
@@ -44,7 +65,7 @@ public static class PlayerAnimatorBuilder
     public const float ReloadTime = 1.6f;
 
     // Stances, as the Stance parameter that PlayerController sets.
-    public const int Holstered = 0, Relaxed = 1, Aim = 2, Crouch = 3, CrouchAim = 4, Hurt = 5, HurtHolstered = 6;
+    public const int Holstered = 0, Relaxed = 1, Aim = 2, Crouch = 3, CrouchAim = 4, Hurt = 5, HurtHolstered = 6, CrouchHolstered = 7;
     // Jumps, as the JumpKind parameter.
     public const int JumpStand = 0, JumpRun = 1, JumpAimStand = 2, JumpAimForward = 3, JumpAimLeft = 4, JumpAimRight = 5;
 
@@ -55,15 +76,20 @@ public static class PlayerAnimatorBuilder
     public static void Build()
     {
         PrepareMixamo(ModelPath, loop: false, bakeRotation: false);
+        LimitFeet(ModelPath);
         Avatar motusMan = PrepareMotusMan();
         scale = HumanScale();
         if (!AssetDatabase.IsValidFolder(Generated)) AssetDatabase.CreateFolder("Assets/Characters/Player", "Generated");
 
         // Holstered: the Mixamo set.
-        AnimationClip hIdle = Load(PrepareMixamo(Mixamo + "Idle.fbx", loop: true, bakeRotation: true));
-        AnimationClip hStart = Load(PrepareMixamo(Mixamo + "Female Start Walking.fbx", loop: false, bakeRotation: true));
-        AnimationClip hWalk = Load(PrepareMixamo(Mixamo + "Female Walk.fbx", loop: true, bakeRotation: true));
-        AnimationClip hRun = Load(PrepareMixamo(Mixamo + "Running.fbx", loop: true, bakeRotation: true));
+        AnimationClip hIdle = Load(PrepareMixamo(Mixamo + UnarmedIdle, loop: true, bakeRotation: true));
+        AnimationClip hStart = Load(PrepareMixamo(Mixamo + UnarmedStart, loop: false, bakeRotation: true));
+        AnimationClip hWalk = Load(PrepareMixamo(Mixamo + UnarmedWalk, loop: true, bakeRotation: true));
+        AnimationClip hRun = Load(PrepareMixamo(Mixamo + UnarmedRun, loop: true, bakeRotation: true));
+        AnimationClip hCrouchIdle = Optional(UnarmedCrouchIdle, loop: true, bakeRotation: true);
+        AnimationClip hCrouchWalk = Optional(UnarmedCrouchWalk, loop: true, bakeRotation: true);
+        AnimationClip hQuickLeft = Optional(UnarmedTurnLeft, loop: false, bakeRotation: false);
+        AnimationClip hQuickRight = Optional(UnarmedTurnRight, loop: false, bakeRotation: false);
         AnimationClip limp = Load(PrepareMixamo(Mixamo + "Injured Run.fbx", loop: true, bakeRotation: true));
         AnimationClip hit = Load(PrepareMixamo(Mixamo + "Hit Reaction.fbx", loop: false, bakeRotation: false));
 
@@ -162,14 +188,24 @@ public static class PlayerAnimatorBuilder
         AnimatorStateMachine machine = controller.layers[0].stateMachine;
         var stances = new Dictionary<int, StanceStates>();
 
-        // Holstered: Idle, a first step, then walk into run.
+        // Holstered: Idle, a first step, then walk into run. The run sits at its own pace; a faster
+        // sprint (PlayerController.unarmedSprintSpeed) plays the whole state faster through MoveScale,
+        // so the feet keep up whatever the sprint is tuned to. With no unarmed turn clips, turning on
+        // the spot borrows the pistol pack's loops and the Unarmed Arms layer keeps her arms relaxed.
         var h = stances[Holstered] = new StanceStates(machine, "Holstered");
         h.idle = h.Add("Idle", hIdle);
         h.turn = h.Add("Turn", TurnTree("Holstered Turn", turnLeft, turnRight, hIdle));
         h.move = h.Add("Move", GaitTree("Holstered Move", hIdle,
             new Gait(hWalk, holsteredWalk, holsteredWalk * BriskWalk),
-            new Gait(hRun, 0f, SprintSpeed, cycleOffset: 0.92f)));
+            new Gait(hRun, 0f, Speed(hRun), cycleOffset: 0.92f)));
+        h.move.speedParameterActive = true;
+        h.move.speedParameter = "MoveScale";
+        // The first step skips the clip's still weight shift and steps out a little quicker.
         AnimatorState hFirstStep = h.Add("First Step", hStart, step: true);
+        hFirstStep.speed = 1.15f;
+        (AnimatorState left, AnimatorState right) hQuick = hQuickLeft != null && hQuickRight != null
+            ? (h.Add("Quick Turn Left", hQuickLeft, quickTurn: true), h.Add("Quick Turn Right", hQuickRight, quickTurn: true))
+            : (null, null);
 
         // Relaxed: walk, jog and run; the run leans into curves; a sprint stops with a last stride.
         var r = stances[Relaxed] = new StanceStates(machine, "Relaxed");
@@ -207,6 +243,15 @@ public static class PlayerAnimatorBuilder
         c.move = c.Add("Move", GaitTree("Crouch Move", crouchIdle, new Gait(crouchWalk, Speed(crouchWalk), Speed(crouchWalk))));
 
         // Crouched and aiming: creeps in every direction.
+        // Crouched with the pistol holstered: the crouch never draws it. Without unarmed crouch clips,
+        // the pistol pack's crouch stands in and the Unarmed Arms layer relaxes the arms.
+        var ch = stances[CrouchHolstered] = new StanceStates(machine, "Crouch Holstered");
+        AnimationClip chIdle = hCrouchIdle != null ? hCrouchIdle : crouchIdle;
+        AnimationClip chWalk = hCrouchWalk != null ? hCrouchWalk : crouchWalk;
+        ch.idle = ch.Add("Idle", chIdle);
+        ch.turn = ch.Add("Turn", TurnTree("Crouch Holstered Turn", crouchTurnLeft, crouchTurnRight, chIdle));
+        ch.move = ch.Add("Move", GaitTree("Crouch Holstered Move", chIdle, new Gait(chWalk, Speed(chWalk), Speed(chWalk))));
+
         var ca = stances[CrouchAim] = new StanceStates(machine, "Crouch Aim");
         ca.idle = ca.Add("Idle", crouchAimIdle);
         ca.turn = ca.Add("Turn", TurnTree("Crouch Aim Turn", crouchAimTurnLeft, crouchAimTurnRight, crouchAimIdle));
@@ -228,7 +273,7 @@ public static class PlayerAnimatorBuilder
         hh.idle = hh.Add("Idle", hIdle);
         hh.turn = hh.Add("Turn", TurnTree("Hurt Holstered Turn", turnLeft, turnRight, hIdle));
         hh.move = hh.Add("Move", GaitTree("Hurt Holstered Move", hIdle,
-            new Gait(hWalk, holsteredWalk * LimpFactor, holsteredWalk * LimpFactor), new Gait(limp, 0f, hurtRun)));
+            new Gait(hWalk, hurtWalk, hurtWalk), new Gait(limp, 0f, hurtRun)));
 
         // Raising or lowering the pistol from a stand, and crouching or standing up with it raised.
         AnimatorStateMachine changes = machine.AddStateMachine("Stance Changes");
@@ -258,6 +303,10 @@ public static class PlayerAnimatorBuilder
 
         machine.defaultState = r.idle;
         foreach (StanceStates s in stances.Values) s.idle.iKOnFeet = s.move.iKOnFeet = s.turn.iKOnFeet = true;
+        // The crouch walk on the mannequin's skeleton bends the left ankle up to 103 degrees with Foot IK
+        // and 85 without: its IK goals don't fit Eve's feet, so it plays without.
+        c.move.iKOnFeet = false;
+        if (hCrouchWalk == null) ch.move.iKOnFeet = false;
         foreach (AnimatorState quick in new[] { aQuick.left, aQuick.right, caQuick.left, caQuick.right }) quick.iKOnFeet = true;
         hFirstStep.iKOnFeet = true;
 
@@ -291,7 +340,7 @@ public static class PlayerAnimatorBuilder
 
         // Holstered: the first step, unless she sprints off.
         Go(h.idle, h.move, 0.2f, On("Moving"), On("Sprint"));
-        Go(h.idle, hFirstStep, 0.15f, On("Moving"));
+        Go(h.idle, hFirstStep, 0.1f, On("Moving")).offset = StepStart(hStart, hWalk);
         Go(hFirstStep, h.idle, 0.25f, Off("Moving"));
         Go(hFirstStep, h.move, 0.25f, On("Sprint"));
         StepInto(hFirstStep, h.move, hStart, hWalk);
@@ -314,6 +363,7 @@ public static class PlayerAnimatorBuilder
         // Aiming with the camera swung far round, standing, she pivots a quarter turn in one go.
         QuickTurns(a, aQuick);
         QuickTurns(ca, caQuick);
+        if (hQuick.left != null) QuickTurns(h, hQuick, setOffEarly: false);
 
         // Aiming: steps off forward, and stops with a last stride from a walk or a jog.
         Go(a.idle, aStart, 0.15f, On("Moving"), On("Forward"), Off("Sprint"));
@@ -390,7 +440,18 @@ public static class PlayerAnimatorBuilder
             (Additive("Look Center", lookCenter, lookCenter), 0f, 1f, 0f),
             (Additive("Look Up", PackClip(AimOffsets + "W1_Stand_Relaxed_Look_U90.fbx", motusMan), lookCenter), 1f, 1f, 0f)), additive: true);
 
-        WriteProfile(walkSpeed, jogSpeed, aimWalkSpeed, aimJogSpeed, Speed(crouchWalk), Speed(crouchAimWalk), holsteredWalk, hurtWalk, hurtRun,
+        // Relaxed arms over pistol-pack stand-ins while the pistol is holstered; PlayerController
+        // fades the layer in for those states only.
+        AddLayer("Unarmed Arms", hIdle, additive: false, ArmsMask());
+
+        LocomotionProfile.UnarmedClips unarmed = new()
+        {
+            run = Speed(hRun),
+            crouchWalk = Speed(chWalk),
+            crouchStandIn = hCrouchIdle == null || hCrouchWalk == null,
+            quickTurns = hQuick.left != null,
+        };
+        WriteProfile(unarmed, walkSpeed, jogSpeed, aimWalkSpeed, aimJogSpeed, Speed(crouchWalk), Speed(crouchAimWalk), holsteredWalk, hurtWalk, hurtRun,
             (run, runLeft, runRight), (aimWalk, aimWalkCurveLeft, aimWalkCurveRight), (aimJog, aimJogCurveLeft, aimJogCurveRight), turnLeft, turnRight);
 
         EditorUtility.SetDirty(controller);
@@ -449,7 +510,9 @@ public static class PlayerAnimatorBuilder
 
     // A quarter turn on the spot, picked by TurnSide, from standing or from a turn already under way. It
     // plays twice as fast as recorded; PlayerController turns her body as far as the clip's root turns.
-    static void QuickTurns(StanceStates s, (AnimatorState left, AnimatorState right) quick)
+    // Aiming, she may set off at once; unarmed, she is already holding the stick, so the turn plays
+    // most of the way before she walks on.
+    static void QuickTurns(StanceStates s, (AnimatorState left, AnimatorState right) quick, bool setOffEarly = true)
     {
         foreach ((AnimatorState state, int side) in new[] { (quick.left, -1), (quick.right, 1) })
         {
@@ -463,13 +526,28 @@ public static class PlayerAnimatorBuilder
                 transitions[0] = into;
                 from.transitions = transitions;
             }
-            Go(state, s.move, 0.2f, On("Moving"));
+            if (setOffEarly) Go(state, s.move, 0.2f, On("Moving"));
+            else ExitTo(state, s.move, 0.75f, 0.2f, On("Moving"));
             ExitTo(state, s.turn, 0.9f, 0.25f, On("TurnInPlace"));
             ExitTo(state, s.idle, 0.9f, 0.25f);
         }
     }
 
     // A first step hands over to the walk when it reaches walking pace, mid-stride, measured from the clips.
+    // Where a first step starts moving: the clip opens with a still weight shift, which made setting
+    // off feel slow. The step starts just before its pace reaches a fifth of the walk's.
+    static float StepStart(AnimationClip step, AnimationClip loop)
+    {
+        float loopSpeed = Stride(loop) / loop.length;
+        for (float n = 0.02f; n < 0.5f; n += 0.01f)
+        {
+            float t = n * step.length;
+            Vector3 travel = RootPosition(step, t + 0.05f) - RootPosition(step, t - 0.05f);
+            if (new Vector2(travel.x, travel.z).magnitude / 0.1f >= loopSpeed * 0.2f) return Mathf.Max(0f, n - 0.04f);
+        }
+        return 0f;
+    }
+
     static void StepInto(AnimatorState step, AnimatorState move, AnimationClip stepClip, AnimationClip loop)
     {
         (float exit, float offset) = HandOver(stepClip, loop);
@@ -555,7 +633,7 @@ public static class PlayerAnimatorBuilder
         return clip;
     }
 
-    static AnimatorStateMachine AddLayer(string name, Motion motion, bool additive)
+    static AnimatorStateMachine AddLayer(string name, Motion motion, bool additive, AvatarMask mask = null)
     {
         var machine = new AnimatorStateMachine { name = name, hideFlags = HideFlags.HideInHierarchy };
         AssetDatabase.AddObjectToAsset(machine, controller);
@@ -570,14 +648,31 @@ public static class PlayerAnimatorBuilder
             name = name,
             stateMachine = machine,
             blendingMode = additive ? AnimatorLayerBlendingMode.Additive : AnimatorLayerBlendingMode.Override,
-            // PlayerController fades the offsets in and out.
-            defaultWeight = additive ? 0f : 1f,
-            avatarMask = UpperBodyMask(),
+            // PlayerController fades the offsets and the unarmed arms in and out.
+            defaultWeight = additive || mask != null ? 0f : 1f,
+            avatarMask = mask != null ? mask : UpperBodyMask(),
         });
         return machine;
     }
 
     // Spine, head, arms and hands; the legs and the body's travel stay with the base layer.
+    // Arms and hands only, so relaxed arms can hang from whatever pose the body is in.
+    static AvatarMask ArmsMask()
+    {
+        string path = Generated + "/Arms.mask";
+        AvatarMask mask = AssetDatabase.LoadAssetAtPath<AvatarMask>(path);
+        if (mask == null)
+        {
+            mask = new AvatarMask();
+            AssetDatabase.CreateAsset(mask, path);
+        }
+        for (AvatarMaskBodyPart part = 0; part < AvatarMaskBodyPart.LastBodyPart; part++)
+            mask.SetHumanoidBodyPartActive(part, part is AvatarMaskBodyPart.LeftArm or AvatarMaskBodyPart.RightArm
+                or AvatarMaskBodyPart.LeftFingers or AvatarMaskBodyPart.RightFingers or AvatarMaskBodyPart.LeftHandIK or AvatarMaskBodyPart.RightHandIK);
+        EditorUtility.SetDirty(mask);
+        return mask;
+    }
+
     static AvatarMask UpperBodyMask()
     {
         string path = Generated + "/Upper Body.mask";
@@ -778,7 +873,7 @@ public static class PlayerAnimatorBuilder
         return (exit, best);
     }
 
-    static void WriteProfile(float walk, float jog, float aimWalk, float aimJog, float crouchWalk, float crouchAimWalk, float holsteredWalk, float hurtWalk, float hurtRun,
+    static void WriteProfile(LocomotionProfile.UnarmedClips unarmed, float walk, float jog, float aimWalk, float aimJog, float crouchWalk, float crouchAimWalk, float holsteredWalk, float hurtWalk, float hurtRun,
         (AnimationClip straight, AnimationClip left, AnimationClip right) run, (AnimationClip straight, AnimationClip left, AnimationClip right) aimWalkTurn,
         (AnimationClip straight, AnimationClip left, AnimationClip right) aimJogTurn, AnimationClip turnLeft, AnimationClip turnRight)
     {
@@ -796,7 +891,8 @@ public static class PlayerAnimatorBuilder
         profile.crouchWalk = crouchWalk;
         profile.crouchAimWalk = crouchAimWalk;
         profile.holsteredWalk = holsteredWalk;
-        profile.holsteredRun = SprintSpeed;
+        profile.holsteredRun = unarmed.run;
+        profile.unarmed = unarmed;
         profile.hurtWalk = hurtWalk;
         profile.hurtRun = hurtRun;
         profile.turnInPlaceRate = (YawRate(turnRight) - YawRate(turnLeft)) / 2f;
@@ -878,6 +974,38 @@ public static class PlayerAnimatorBuilder
         return false;
     }
 
+    // An optional unarmed clip: null while its file isn't in the Mixamo folder.
+    static AnimationClip Optional(string file, bool loop, bool bakeRotation) =>
+        AssetImporter.GetAtPath(Mixamo + file) is ModelImporter ? Load(PrepareMixamo(Mixamo + file, loop, bakeRotation)) : null;
+
+    // Caps how far Eve's feet bend up and twist (see FootUpLimit), on her own avatar, so every clip
+    // retargeted onto her keeps the heels believable.
+    static void LimitFeet(string path)
+    {
+        var importer = (ModelImporter)AssetImporter.GetAtPath(path);
+        HumanDescription description = importer.humanDescription;
+        HumanBone[] bones = description.human;
+        bool changed = false;
+        for (int i = 0; i < bones.Length; i++)
+        {
+            if (bones[i].humanName != "LeftFoot" && bones[i].humanName != "RightFoot") continue;
+            var limit = new HumanLimit
+            {
+                useDefaultValues = false,
+                min = new Vector3(-50f, -FootTwistLimit, 0f),
+                max = new Vector3(FootUpLimit, FootTwistLimit, 0f),
+                center = Vector3.zero,
+            };
+            if (!bones[i].limit.useDefaultValues && bones[i].limit.min == limit.min && bones[i].limit.max == limit.max) continue;
+            bones[i].limit = limit;
+            changed = true;
+        }
+        if (!changed) return;
+        description.human = bones;
+        importer.humanDescription = description;
+        importer.SaveAndReimport();
+    }
+
     static string PrepareMixamo(string path, bool loop, bool bakeRotation)
     {
         if (AssetImporter.GetAtPath(path) is not ModelImporter importer) return path;
@@ -951,7 +1079,7 @@ public static class PlayerAnimatorBuilder
 
     static void AddParameters()
     {
-        foreach (string name in new[] { "Speed", "Strafe", "Travel", "StopSpeed", "TurnRate", "AimPitch", "AimYaw", "AimBlend", "CrouchBlend", "IdleTime" })
+        foreach (string name in new[] { "Speed", "Strafe", "Travel", "StopSpeed", "TurnRate", "AimPitch", "AimYaw", "AimBlend", "CrouchBlend", "IdleTime", "MoveScale" })
             controller.AddParameter(name, AnimatorControllerParameterType.Float);
         foreach (string name in new[] { "IsAiming", "Danger", "Moving", "Sprint", "Forward", "TurnInPlace", "Grounded", "IsDead" })
             controller.AddParameter(name, AnimatorControllerParameterType.Bool);
@@ -964,6 +1092,7 @@ public static class PlayerAnimatorBuilder
         {
             if (parameter.name == "Stance") parameter.defaultInt = Relaxed;
             if (parameter.name == "Grounded") parameter.defaultBool = true;
+            if (parameter.name == "MoveScale") parameter.defaultFloat = 1f;
         }
         controller.parameters = parameters;
     }

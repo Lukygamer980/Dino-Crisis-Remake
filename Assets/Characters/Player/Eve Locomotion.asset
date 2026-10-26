@@ -20,7 +20,12 @@ MonoBehaviour:
   crouchWalk: 0.9788687
   crouchAimWalk: 0.8242826
   holsteredWalk: 1.1274437
-  holsteredRun: 4.4
+  holsteredRun: 3.067511
+  unarmed:
+    run: 3.067511
+    crouchWalk: 0.9788687
+    crouchStandIn: 1
+    quickTurns: 0
   hurtWalk: 0.6082804
   hurtRun: 2.64
   turnInPlaceRate: 67.50002
