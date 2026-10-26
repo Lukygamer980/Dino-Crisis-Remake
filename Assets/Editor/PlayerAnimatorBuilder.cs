@@ -41,7 +41,7 @@ public static class PlayerAnimatorBuilder
         controller.AddParameter("Dead", AnimatorControllerParameterType.Trigger);
 
         AnimatorStateMachine machine = controller.layers[0].stateMachine;
-        AnimatorState free = State(controller, machine, "Free", Tree(controller, "Free", Load(idle), 0f, Load(walk), 2.2f, Load(run), 4.4f));
+        AnimatorState free = State(controller, machine, "Free", Tree(controller, "Free", Load(idle), 0f, Load(walk), 2.2f, Load(run), 3.3f));
         AnimatorState hurt = State(controller, machine, "Hurt", Tree(controller, "Hurt", Load(idle), 0f, Load(walk), 1.4f, Load(limp), 2.6f));
         AnimatorState aim = State(controller, machine, "Aim", AimTree(controller, Load(aimIdle), Load(aimWalk), Load(aimRun), Load(aimBack), Load(aimLeft), Load(aimRight)));
         AnimatorState shooting = OneShot(machine, "Shoot", Load(shoot));
@@ -115,6 +115,14 @@ public static class PlayerAnimatorBuilder
         tree.AddChild(a, aAt);
         tree.AddChild(b, bAt);
         tree.AddChild(c, cAt);
+        // Sprint is 4.4 m/s. The run clip has to own everything above a brisk walk, or the two
+        // cycles blend and the ankles swim. The clip itself is a jog, so it plays a bit faster.
+        tree.useAutomaticThresholds = false;
+        tree.minThreshold = 0f;
+        tree.maxThreshold = 4.4f;
+        ChildMotion[] children = tree.children;
+        children[2].timeScale = 1.45f;
+        tree.children = children;
         AssetDatabase.AddObjectToAsset(tree, controller);
         return tree;
     }
@@ -128,12 +136,16 @@ public static class PlayerAnimatorBuilder
             blendParameter = "Strafe",
             blendParameterY = "Speed",
         };
+        tree.useAutomaticThresholds = false;
         tree.AddChild(idle, Vector2.zero);
         tree.AddChild(walk, new Vector2(0f, 2.2f));
-        tree.AddChild(run, new Vector2(0f, 4.4f));
+        tree.AddChild(run, new Vector2(0f, 3.3f));
         tree.AddChild(back, new Vector2(0f, -1.6f));
         tree.AddChild(left, new Vector2(-1.6f, 0f));
         tree.AddChild(right, new Vector2(1.6f, 0f));
+        ChildMotion[] children = tree.children;
+        children[2].timeScale = 1.45f;
+        tree.children = children;
         AssetDatabase.AddObjectToAsset(tree, controller);
         return tree;
     }
