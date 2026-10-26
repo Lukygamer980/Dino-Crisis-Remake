@@ -771,12 +771,26 @@ public static class SceneBuilder
         controller.height = 1.7f;
         controller.radius = 0.3f;
 
-        GameObject gun = Part(PrimitiveType.Cube, "Handgun", root.transform, new Vector3(0.24f, 0.95f, 0.12f), Vector3.zero, new Vector3(0.07f, 0.1f, 0.28f), gunMetal);
-        Animator animator = AttachEve(root.transform, gun.transform);
-
+        Animator animator = AttachEve(root.transform, out Transform handSocket, out Transform holsterSocket);
+        GameObject pistol = AssetDatabase.LoadAssetAtPath<GameObject>(PlayerAnimatorBuilder.PistolPath);
+        Transform gun;
         Transform gunPoint = new GameObject("Gun Point").transform;
-        gunPoint.SetParent(gun.transform, false);
-        gunPoint.localPosition = new Vector3(0f, 0f, 0.6f);
+        if (handSocket != null && pistol != null)
+        {
+            // The 1911 from the pistol pack: its barrel runs along +Z and the muzzle is 19 cm ahead of the grip.
+            gun = ((GameObject)PrefabUtility.InstantiatePrefab(pistol)).transform;
+            gun.name = "Handgun";
+            gun.SetParent(handSocket, false);
+            gunPoint.SetParent(gun, false);
+            gunPoint.localPosition = new Vector3(0f, 0.045f, 0.19f);
+        }
+        else
+        {
+            gun = Part(PrimitiveType.Cube, "Handgun", root.transform, new Vector3(0.24f, 0.95f, 0.12f), Vector3.zero, new Vector3(0.07f, 0.1f, 0.28f), gunMetal).transform;
+            if (handSocket != null) gun.SetParent(handSocket, false);
+            gunPoint.SetParent(gun, false);
+            gunPoint.localPosition = new Vector3(0f, 0f, 0.6f);
+        }
         Light flash = gunPoint.gameObject.AddComponent<Light>();
         flash.type = LightType.Point;
         flash.color = new Color(1f, 0.75f, 0.35f);
@@ -794,18 +808,31 @@ public static class SceneBuilder
         fillLight.range = 4f;
 
         PlayerController player = root.AddComponent<PlayerController>();
-        player.gunModel = gun.transform;
+        player.gunModel = gun;
         player.gunPoint = gunPoint;
+        player.gunHandSocket = handSocket;
+        player.gunHolsterSocket = holsterSocket;
+        player.locomotion = AssetDatabase.LoadAssetAtPath<LocomotionProfile>(PlayerAnimatorBuilder.ProfilePath);
         player.muzzleFlash = flash;
         player.animator = animator;
         ExcludeFromNavMesh(root);
         return player;
     }
 
-    // Eve replaces the capsule body. The handgun sits on the Mixamo right-hand bone, so it follows
-    // the pistol clips. Without the model, the old capsule body is built instead.
-    static Animator AttachEve(Transform player, Transform gun)
+    // Where the 1911 sits in Eve's right hand, and in a holster on her right thigh. Measured in Play
+    // mode: in the standing aim pose the barrel then points straight ahead with the grip in her palm,
+    // and holstered it hangs barrel down on the outside of the thigh with the grip to the back.
+    public static readonly Vector3 GripPosition = new(-0.018f, 0.077f, -0.018f);
+    public static readonly Vector3 GripRotation = new(293.0f, 137.2f, 307.5f);
+    public static readonly Vector3 HolsterPosition = new(-0.107f, 0.153f, 0.026f);
+    public static readonly Vector3 HolsterRotation = new(270.0f, 193.5f, 0f);
+
+    // Eve replaces the capsule body. The handgun sits in a socket on her right-hand bone, so it follows
+    // the pistol clips, and moves to a socket on her thigh when she holsters it. Without the model,
+    // the old capsule body is built instead.
+    static Animator AttachEve(Transform player, out Transform handSocket, out Transform holsterSocket)
     {
+        handSocket = holsterSocket = null;
         GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PlayerAnimatorBuilder.ModelPath);
         if (prefab == null)
         {
@@ -821,18 +848,23 @@ public static class SceneBuilder
         model.transform.SetParent(player, false);
         Animator animator = model.GetComponent<Animator>();
         animator.runtimeAnimatorController = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(PlayerAnimatorBuilder.ControllerPath);
-        animator.applyRootMotion = false;
+        // Root motion is on only so RootMotionRelay can read how fast the animated steps go.
+        // The relay keeps the model in place; PlayerController moves the body.
+        animator.applyRootMotion = true;
+        model.AddComponent<RootMotionRelay>();
 
-        // In the Mixamo hand the fingers point along +Y and the back of the hand along -Z, so the
-        // barrel goes along +Y with the slide on top. The hand has unit scale; the gun keeps its own.
-        Transform hand = animator.GetBoneTransform(HumanBodyBones.RightHand);
-        if (hand != null)
-        {
-            gun.SetParent(hand, false);
-            gun.localPosition = new Vector3(0f, 0.1f, -0.04f);
-            gun.localRotation = Quaternion.Euler(-90f, 0f, 0f);
-        }
+        handSocket = Socket("Gun Socket", animator.GetBoneTransform(HumanBodyBones.RightHand), GripPosition, GripRotation);
+        holsterSocket = Socket("Holster Socket", animator.GetBoneTransform(HumanBodyBones.RightUpperLeg), HolsterPosition, HolsterRotation);
         return animator;
+    }
+
+    static Transform Socket(string name, Transform bone, Vector3 position, Vector3 rotation)
+    {
+        if (bone == null) return null;
+        Transform socket = new GameObject(name).transform;
+        socket.SetParent(bone, false);
+        socket.SetLocalPositionAndRotation(position, Quaternion.Euler(rotation));
+        return socket;
     }
 
     // An ambush raptor starts inactive and appears when the generator is switched on. It patrols

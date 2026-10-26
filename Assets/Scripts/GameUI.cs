@@ -12,8 +12,9 @@ public class GameUI : MonoBehaviour
     public string startRoomName = "";
 
     const string ControlsHelp =
-        "Mouse / right stick look   WASD / left stick move   Shift / Square run   E / Cross interact\n" +
-        "Hold right mouse / L2 to aim over the shoulder   Left mouse / J / R2 shoots, even on the move   Esc releases the mouse";
+        "Mouse / right stick look   WASD / left stick move   Shift / Square run   E / Cross interact   Space / R1 jump\n" +
+        "Hold right mouse / L2 to aim over the shoulder   Left mouse / J / R2 shoots, even on the move   R / Triangle reload\n" +
+        "C / Circle crouch   H / D-pad up holster or draw   Esc releases the mouse";
 
     float fadeAlpha = 1f;
     float damageFlash;
@@ -121,7 +122,8 @@ public class GameUI : MonoBehaviour
         GUI.color = statusColor;
         GUI.Label(new Rect(24f, height - 70f, 300f, 30f), "STATUS: " + player.Status, hudStyle);
         GUI.color = Color.white;
-        GUI.Label(new Rect(24f, height - 42f, 300f, 30f), "HANDGUN  " + player.ammo, hudStyle);
+        string handgun = player.IsHolstered ? "HOLSTERED" : player.IsReloading ? "RELOADING" : player.Loaded.ToString();
+        GUI.Label(new Rect(24f, height - 42f, 400f, 30f), "HANDGUN  " + handgun + " / " + player.ammo, hudStyle);
 
         if (player.IsAiming) DrawCrosshair(width / 2f, height / 2f);
         if (prompt != null) GUI.Label(new Rect(0f, height - 130f, width, 30f), prompt, centeredStyle);
@@ -135,7 +137,7 @@ public class GameUI : MonoBehaviour
         if (Time.timeSinceLevelLoad < 12f)
         {
             centeredStyle.fontSize = 15;
-            GUI.Label(new Rect(0f, 10f, width, 50f), ControlsHelp, centeredStyle);
+            GUI.Label(new Rect(0f, 10f, width, 70f), ControlsHelp, centeredStyle);
             centeredStyle.fontSize = 22;
         }
     }

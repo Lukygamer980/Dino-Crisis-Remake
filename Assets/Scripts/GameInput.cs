@@ -17,6 +17,10 @@ public static class GameInput
     public static InputAction Fire => Action("Fire");
     public static InputAction Interact => Action("Interact");
     public static InputAction Restart => Action("Restart");
+    public static InputAction Reload => Action("Reload");
+    public static InputAction Crouch => Action("Crouch");
+    public static InputAction Jump => Action("Jump");
+    public static InputAction Holster => Action("Holster");
 
     static InputAction Action(string name)
     {

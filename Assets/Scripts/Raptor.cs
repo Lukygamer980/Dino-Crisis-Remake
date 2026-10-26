@@ -18,6 +18,8 @@ public class Raptor : MonoBehaviour
     public float chaseSpeed = 4.7f;
     public float turnSpeed = 280f;
     public float sightRange = 11f;
+    // A crouching player is harder to make out: the raptor sees her only this share as far.
+    public float crouchedSightFactor = 0.6f;
     public float attackRange = 1.9f;
     public float attackWindUp = 0.45f;
     public float attackRecovery = 1.1f;
@@ -83,7 +85,8 @@ public class Raptor : MonoBehaviour
         Vector3 toPlayer = player.transform.position - transform.position;
         toPlayer.y = 0f;
         float distanceToPlayer = toPlayer.magnitude;
-        bool seesPlayer = !player.IsDead && distanceToPlayer < sightRange && HasLineOfSight();
+        float range = player.IsCrouching ? sightRange * crouchedSightFactor : sightRange;
+        bool seesPlayer = !player.IsDead && distanceToPlayer < range && HasLineOfSight();
 
         // Knockback and the lunge push the agent along the NavMesh, so they can't shove it into walls.
         if (knockback.sqrMagnitude > 0.0001f) agent.Move(knockback * Time.deltaTime);
@@ -199,7 +202,8 @@ public class Raptor : MonoBehaviour
     bool HasLineOfSight()
     {
         Vector3 eye = transform.position + Vector3.up * 1.3f;
-        Vector3 playerChest = player.transform.position + Vector3.up * 1.2f;
+        // Crouched behind low cover, the player's chest is out of sight.
+        Vector3 playerChest = player.transform.position + Vector3.up * player.ChestHeight;
         return Physics.Linecast(eye, playerChest, out RaycastHit hit, ~0, QueryTriggerInteraction.Ignore)
             && hit.collider.GetComponentInParent<PlayerController>() != null;
     }
