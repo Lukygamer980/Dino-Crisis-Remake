@@ -242,7 +242,6 @@ public static class PlayerAnimatorBuilder
         c.turn = c.Add("Turn", TurnTree("Crouch Turn", crouchTurnLeft, crouchTurnRight, crouchIdle));
         c.move = c.Add("Move", GaitTree("Crouch Move", crouchIdle, new Gait(crouchWalk, Speed(crouchWalk), Speed(crouchWalk))));
 
-        // Crouched and aiming: creeps in every direction.
         // Crouched with the pistol holstered: the crouch never draws it. Without unarmed crouch clips,
         // the pistol pack's crouch stands in and the Unarmed Arms layer relaxes the arms.
         var ch = stances[CrouchHolstered] = new StanceStates(machine, "Crouch Holstered");
@@ -252,6 +251,7 @@ public static class PlayerAnimatorBuilder
         ch.turn = ch.Add("Turn", TurnTree("Crouch Holstered Turn", crouchTurnLeft, crouchTurnRight, chIdle));
         ch.move = ch.Add("Move", GaitTree("Crouch Holstered Move", chIdle, new Gait(chWalk, Speed(chWalk), Speed(chWalk))));
 
+        // Crouched and aiming: creeps in every direction.
         var ca = stances[CrouchAim] = new StanceStates(machine, "Crouch Aim");
         ca.idle = ca.Add("Idle", crouchAimIdle);
         ca.turn = ca.Add("Turn", TurnTree("Crouch Aim Turn", crouchAimTurnLeft, crouchAimTurnRight, crouchAimIdle));
@@ -382,9 +382,11 @@ public static class PlayerAnimatorBuilder
         }
         Stop(a);
 
-        // Crouched.
+        // Crouched, with the pistol out or holstered.
         Go(c.idle, c.move, 0.2f, On("Moving"));
         Stop(c);
+        Go(ch.idle, ch.move, 0.2f, On("Moving"));
+        Stop(ch);
         Go(ca.idle, caStart, 0.15f, On("Moving"), On("Forward"));
         Go(ca.idle, ca.move, 0.2f, On("Moving"));
         Go(caStart, ca.idle, 0.25f, Off("Moving"));
@@ -533,7 +535,6 @@ public static class PlayerAnimatorBuilder
         }
     }
 
-    // A first step hands over to the walk when it reaches walking pace, mid-stride, measured from the clips.
     // Where a first step starts moving: the clip opens with a still weight shift, which made setting
     // off feel slow. The step starts just before its pace reaches a fifth of the walk's.
     static float StepStart(AnimationClip step, AnimationClip loop)
@@ -548,6 +549,7 @@ public static class PlayerAnimatorBuilder
         return 0f;
     }
 
+    // A first step hands over to the walk when it reaches walking pace, mid-stride, measured from the clips.
     static void StepInto(AnimatorState step, AnimatorState move, AnimationClip stepClip, AnimationClip loop)
     {
         (float exit, float offset) = HandOver(stepClip, loop);
@@ -655,7 +657,6 @@ public static class PlayerAnimatorBuilder
         return machine;
     }
 
-    // Spine, head, arms and hands; the legs and the body's travel stay with the base layer.
     // Arms and hands only, so relaxed arms can hang from whatever pose the body is in.
     static AvatarMask ArmsMask()
     {
@@ -673,6 +674,7 @@ public static class PlayerAnimatorBuilder
         return mask;
     }
 
+    // Spine, head, arms and hands; the legs and the body's travel stay with the base layer.
     static AvatarMask UpperBodyMask()
     {
         string path = Generated + "/Upper Body.mask";

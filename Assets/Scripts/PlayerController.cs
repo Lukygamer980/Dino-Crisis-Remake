@@ -290,7 +290,8 @@ public class PlayerController : MonoBehaviour
                 // Standing and facing well away, she steps round first and sets off once nearly there.
                 if (standing && Mathf.Abs(error) > onSpotAngle)
                 {
-                    if (unarmed && p.unarmed.quickTurns && animator != null && rootMotion != null)
+                    // Only the healthy unarmed stance has quarter turns; hurt she turns in place.
+                    if (unarmed && Stance() == HolsteredStance && p.unarmed.quickTurns && animator != null && rootMotion != null)
                     {
                         animator.SetInteger("TurnSide", error < 0f ? -1 : 1);
                         animator.SetTrigger("QuickTurn");
