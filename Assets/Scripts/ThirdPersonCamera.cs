@@ -12,6 +12,8 @@ public class ThirdPersonCamera : MonoBehaviour
     [Header("Framing")]
     public float distance = 3.2f;
     public float pivotHeight = 1.55f;
+    // How much lower the camera rides while the player crouches.
+    public float crouchDrop = 0.5f;
     public float shoulderOffset = 0.45f;
     public float fieldOfView = 60f;
 
@@ -65,7 +67,7 @@ public class ThirdPersonCamera : MonoBehaviour
         viewCamera.fieldOfView = Mathf.Lerp(fieldOfView, aimFieldOfView, blend);
 
         Quaternion rotation = Quaternion.Euler(pitch, yaw, 0f);
-        Vector3 pivot = target.position + Vector3.up * pivotHeight;
+        Vector3 pivot = target.position + Vector3.up * (pivotHeight - crouchDrop * player.CrouchAmount);
         Vector3 shoulder = pivot + rotation * Vector3.right * Mathf.Lerp(shoulderOffset, aimShoulderOffset, blend);
         shoulder = pivot + (shoulder - pivot).normalized * FreeDistance(pivot, shoulder - pivot);
 

@@ -1,0 +1,36 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d94d2a7e357df48d981489914b70136d, type: 3}
+  m_Name: Eve Locomotion
+  m_EditorClassIdentifier: Assembly-CSharp::LocomotionProfile
+  walk: 1.0138006
+  jog: 3.2329984
+  run: 4.4
+  aimWalk: 1.0338814
+  aimJog: 2.6467783
+  crouchWalk: 0.9788687
+  crouchAimWalk: 0.8242826
+  holsteredWalk: 1.1274437
+  holsteredRun: 4.4
+  hurtWalk: 0.6082804
+  hurtRun: 2.64
+  turnInPlaceRate: 67.50002
+  maxTurnInPlaceRate: 200
+  runTurn:
+    rate: 137.50279
+    speedShare: 0.44398224
+  aimWalkTurn:
+    rate: 37.71431
+    speedShare: 0.7771672
+  aimJogTurn:
+    rate: 95.7144
+    speedShare: 0.56620526
