@@ -46,6 +46,7 @@ public class PlayerController : MonoBehaviour
     public float quickTurnAngle = 80f;
     [Tooltip("Holstered and standing, facing farther off than this she turns with the pack's quarter turn; walking or jogging, farther off than unarmedMovingTurnAngle she turns with its turn on the move.")]
     public float unarmedTurnAngle = 60f;
+    [Tooltip("Holstered and walking or jogging, facing farther off than this she turns with the pack's turn on the move.")]
     public float unarmedMovingTurnAngle = 80f;
     [Tooltip("Holstered and standing, a turn farther than this steps round on the spot instead of a quarter turn.")]
     public float unarmedQuickTurnMax = 120f;
@@ -153,6 +154,7 @@ public class PlayerController : MonoBehaviour
 
     static readonly int MoveTag = Animator.StringToHash("Move");
     static readonly int TurnTag = Animator.StringToHash("Turn");
+    static readonly int FidgetTag = Animator.StringToHash("Fidget");
 
     LocomotionProfile Profile => locomotion != null ? locomotion : defaultProfile ??= ScriptableObject.CreateInstance<LocomotionProfile>();
     static LocomotionProfile defaultProfile;
@@ -627,6 +629,8 @@ public class PlayerController : MonoBehaviour
         // Standing still a while, she looks around (holstered: waits or talks to herself, picked afresh
         // each time); the wait starts over in a new stance.
         bool still = (stance == RelaxedStance || stance == AimStance || stance == UnarmedStance) && stance == lastStance && !wantsToMove && !turningOnSpot && !IsReloading && weaponAction == WeaponAction.None;
+        // Once a look around begins, the wait for the next one starts over, with a new pick.
+        if (ClipTag(FidgetTag)) still = false;
         if (!still && idleTime > 0f) animator.SetInteger("IdleVariant", Random.Range(0, 2));
         idleTime = still ? idleTime + Time.deltaTime : 0f;
         lastStance = stance;

@@ -354,8 +354,8 @@ public static class PlayerAnimatorBuilder
         uc.move = uc.Add("Move", DirectionalTree("Unarmed Crouch Move", mCrouchIdle,
             (M("CrouchWalk_F_Loop"), new Vector2(0f, WalkGait)), (M("CrouchWalk_B_Loop"), new Vector2(0f, -WalkGait)),
             (M("CrouchWalk_L_Loop"), new Vector2(-WalkGait, 0f)), (M("CrouchWalk_R_Loop"), new Vector2(WalkGait, 0f)),
-            (M("CrouchWalk_FL_Loop"), new Vector2(-D, D)), (M("CrouchWalk_FR_Loop"), new Vector2(D, D)),
-            (M("CrouchWalk_BL_BkPd_Loop"), new Vector2(-D, -D)), (M("CrouchWalk_BR_BkPd_Loop"), new Vector2(D, -D))), "Move");
+            (M("CrouchWalk_FL_Loop"), new Vector2(-D, D) * WalkGait), (M("CrouchWalk_FR_Loop"), new Vector2(D, D) * WalkGait),
+            (M("CrouchWalk_BL_BkPd_Loop"), new Vector2(-D, -D) * WalkGait), (M("CrouchWalk_BR_BkPd_Loop"), new Vector2(D, -D) * WalkGait)), "Move");
         (uc.turnLeft, uc.turnRight) = (uc.Add("Turn Left", M("Crouch_Rlx_Turn_In_Place_L_Loop", true), "Turn"), uc.Add("Turn Right", M("Crouch_Rlx_Turn_In_Place_R_Loop", true), "Turn"));
         (uc.quickLeft, uc.quickRight) = (uc.Add("Quick Turn Left", M("Crouch_L_90", true), "Turn"), uc.Add("Quick Turn Right", M("Crouch_R_90", true), "Turn"));
         uc.quickLeft.speed = uc.quickRight.speed = UnarmedQuickTurnSpeed;
@@ -368,6 +368,8 @@ public static class PlayerAnimatorBuilder
             // Unity's Foot IK puts the feet where the clip's flat-footed actor put his; on heels that
             // bends the ankles, so it is a choice in the Player Character asset.
             foreach (AnimatorState state in s.all) state.iKOnFeet = setup.stateFootIK;
+            // PlayerController starts the wait for the next look around once one begins.
+            foreach (AnimatorState look in new[] { s.fidget, s.fidgetAlt }) if (look != null) look.tag = "Fidget";
         }
 
         // Raising or lowering the pistol from a stand, and crouching or standing up with it raised.
@@ -478,7 +480,7 @@ public static class PlayerAnimatorBuilder
         foreach (int id in new[] { Relaxed, Hurt })
         {
             StanceStates s = stances[id];
-            Go(s.move, s.stop, 0.2f, Off("Moving"), Is("Gait", 3));
+            Go(s.move, s.stop, 0.2f, Off("Moving"), Is("Gait", 3), Above("MoveY", 1.5f));
             Go(s.stop, s.move, 0.2f, On("Moving"));
             ExitTo(s.stop, s.idle, 0.9f);
         }
@@ -498,7 +500,7 @@ public static class PlayerAnimatorBuilder
             StanceStates s = stances[id];
             for (int g = s.stops.Length - 1; g >= 0; g--)
             {
-                Go(s.move, s.stops[g], 0.2f, Off("Moving"), Is("Gait", g + 1), Above("MoveY", 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
+                Go(s.move, s.stops[g], 0.2f, Off("Moving"), Is("Gait", g + 1), Above("MoveY", g == 2 ? 1.5f : 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
                 Go(s.stops[g], s.move, 0.2f, On("Moving"));
                 ExitTo(s.stops[g], s.idle, 0.9f);
             }
