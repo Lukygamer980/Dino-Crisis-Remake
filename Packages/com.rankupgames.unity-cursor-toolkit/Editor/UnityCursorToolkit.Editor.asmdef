@@ -1,0 +1,24 @@
+{
+    "name": "UnityCursorToolkit.Editor",
+    "rootNamespace": "UnityCursorToolkit",
+    "references": [
+        "GUID:ce130a53350d49668d238b0fd3a855e3"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "Unity",
+            "expression": "6000.8",
+            "define": "UNITY_6000_8_OR_NEWER"
+        }
+    ],
+    "noEngineReferences": false
+}

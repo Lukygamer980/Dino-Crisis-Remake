@@ -14,7 +14,8 @@ public class LocomotionProfile : ScriptableObject
         public float speedShare;
     }
 
-    [Header("Pistol drawn")]
+    [Header("Moving")]
+    // Holstered or not, she moves on the same clips.
     public float walk = 1f;
     public float jog = 3.2f;
     public float run = 4.4f;
@@ -23,27 +24,13 @@ public class LocomotionProfile : ScriptableObject
     public float crouchWalk = 1f;
     public float crouchAimWalk = 0.8f;
 
-    // Which unarmed clips the Animator has, and the speeds they cover at their own pace.
-    [System.Serializable]
-    public struct UnarmedClips
-    {
-        public float run;
-        public float crouchWalk;
-        // True while a pistol-pack crouch stands in for the missing unarmed crouch clips.
-        public bool crouchStandIn;
-        // True when Mixamo quarter turns are in, so standing turns play them.
-        public bool quickTurns;
-    }
-
-    [Header("Pistol holstered")]
-    public float holsteredWalk = 1.13f;
-    // The unarmed run at its own pace; PlayerController.unarmedSprintSpeed may go faster.
-    public float holsteredRun = 3.07f;
-    public UnarmedClips unarmed = new() { run = 3.07f, crouchWalk = 1f, crouchStandIn = true };
-
     [Header("Badly hurt")]
-    public float hurtWalk = 0.6f;
-    public float hurtRun = 2.6f;
+    public float hurtWalk = 1f;
+    public float hurtRun = 3.2f;
+
+    [Header("Shooting")]
+    // Holding the trigger fires this often, in step with the continuous-fire clip's recoils.
+    public float rapidFireInterval = 0.27f;
 
     [Header("Turning")]
     // The turn-in-place loops step 45 degrees in 0.67 s; faster turns play them faster, up to this.

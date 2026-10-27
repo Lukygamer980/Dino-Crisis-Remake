@@ -36,3 +36,7 @@ crashlytics-build.properties
 
 # macOS
 .DS_Store
+
+# Over GitHub's 100 MB limit, and only the Blender source of an asset pack Unity doesn't read
+Assets/LoafbrrAssets/Interiors_A/Interiors_A_blend.zip
+Assets/LoafbrrAssets/Interiors_A/Interiors_A_blend.zip.meta

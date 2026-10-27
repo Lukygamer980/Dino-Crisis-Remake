@@ -35,6 +35,10 @@ using UnityEngine.Rendering;
 //
 // The raptors walk a NavMesh baked from the level's colliders at the end of the build. Characters,
 // ceilings and door panels are kept out of the bake, so doorways stay walkable.
+//
+// Eve and the raptors are instances of the prefabs in Assets/Prefabs (see CharacterPrefabs). The
+// level only places them and gives each raptor its patrol; tune the characters in the prefabs,
+// ideally in the character test arena (see TestArenaBuilder), and both scenes pick the changes up.
 public static class SceneBuilder
 {
     const string ScenePath = "Assets/Scenes/DinoDemo.unity";
@@ -75,16 +79,18 @@ public static class SceneBuilder
     static Room managementOffice, strategyRoom, controlHall, controlHallEnd, controlRoom;        // 1-10, 1-21, 1-8, 1-9
     static Room ductA, ductB;                                                                    // 1-7, 1-17
 
-    static Material concrete, ground, wall, fence, ceiling, metal, crate, door, laser, tile, duct, suit, skin, hair, gunMetal;
-    static Material raptorSkin, raptorDark, raptorEyes, blood, screenGlow, lockSign, doorSign, hazard;
-    static Material ammoBox, medPak, keyCard, militaryCard, codeDisk, brassKey;
+    internal static Material concrete, ground, wall, fence, ceiling, metal, crate, door, laser, tile, duct, suit, skin, hair, gunMetal;
+    internal static Material raptorSkin, raptorDark, raptorEyes, blood, screenGlow, lockSign, doorSign, hazard;
+    internal static Material ammoBox, medPak, keyCard, militaryCard, codeDisk, brassKey;
 
     [MenuItem("Dino Demo/Build Demo Scene")]
     public static void Build()
     {
         CreateMaterials();
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+        CharacterPrefabs.Prepare();
         SetUpAtmosphere();
+        boxMeshes.Clear();
         rooms.Clear();
         openings.Clear();
         doorways.Clear();
@@ -110,7 +116,7 @@ public static class SceneBuilder
         BuildCameraAndUI(player, backyardFront.name);
 
         Directory.CreateDirectory(Path.GetDirectoryName(ScenePath));
-        BakeNavMesh();
+        BakeNavMesh(NavMeshPath);
         EditorSceneManager.SaveScene(scene, ScenePath);
         EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
         Debug.Log("Dino demo scene built: " + ScenePath);
@@ -687,6 +693,11 @@ public static class SceneBuilder
     // A light that stays off until the generator runs.
     static void Powered(Light light) => poweredLights.Add(light);
 
+    // The light intensities in this file were set under the built-in pipeline. URP lets point lights
+    // fall off with the square of the distance, which leaves them about three times darker at the
+    // few meters between a ceiling lamp and the floor, so every point light is scaled by this.
+    internal const float UrpLightScale = 3f;
+
     static Light PointLight(Transform room, Vector3 position, Color color, float intensity, float range, bool flicker, bool shadows)
     {
         GameObject lightObject = new(flicker ? "Flickering Light" : "Light");
@@ -695,7 +706,7 @@ public static class SceneBuilder
         Light light = lightObject.AddComponent<Light>();
         light.type = LightType.Point;
         light.color = color;
-        light.intensity = intensity;
+        light.intensity = intensity * UrpLightScale;
         light.range = range;
         light.shadows = shadows ? LightShadows.Soft : LightShadows.None;
         if (flicker) lightObject.AddComponent<FlickeringLight>();
@@ -741,181 +752,74 @@ public static class SceneBuilder
 
     static void Examinable(GameObject target, string message) => target.AddComponent<Notice>().message = message;
 
-    static void BuildPickup(Transform room, Pickup.Kind kind, Vector3 position, int amount)
+    // Ammo and Med Paks from their prefabs (see PickupPrefabs); the level sets only how much each gives.
+    internal static void BuildPickup(Transform room, Pickup.Kind kind, Vector3 position, int amount)
     {
-        (Material material, Vector3 scale) = kind == Pickup.Kind.Ammo
-            ? (ammoBox, new Vector3(0.28f, 0.16f, 0.2f))
-            : (medPak, new Vector3(0.3f, 0.18f, 0.3f));
-        GameObject pickup = Box(kind.ToString(), room, position, scale, material, collider: false);
-        Pickup component = pickup.AddComponent<Pickup>();
-        component.kind = kind;
-        component.amount = amount;
+        Pickup pickup = PlacePickup(room, kind == Pickup.Kind.Ammo ? PickupPrefabs.Look.Ammo : PickupPrefabs.Look.MedPak, position);
+        pickup.amount = amount;
     }
 
+    // An item from the prefab of its look, picked by the colour it had as a placeholder.
     static void BuildItem(Transform room, string item, string itemName, string hint, Vector3 position, Material material)
     {
-        GameObject pickup = Box(itemName, room, position, new Vector3(0.24f, 0.03f, 0.16f), material, collider: false);
-        Pickup component = pickup.AddComponent<Pickup>();
-        component.kind = Pickup.Kind.Item;
-        component.item = item;
-        component.itemName = itemName;
-        component.hint = hint;
+        PickupPrefabs.Look look = material == codeDisk ? PickupPrefabs.Look.CodeDisk
+            : material == keyCard ? PickupPrefabs.Look.KeyCard
+            : material == militaryCard ? PickupPrefabs.Look.MilitaryCard
+            : PickupPrefabs.Look.BrassKey;
+        Pickup pickup = PlacePickup(room, look, position);
+        pickup.name = itemName;
+        pickup.kind = Pickup.Kind.Item;
+        pickup.item = item;
+        pickup.itemName = itemName;
+        pickup.hint = hint;
     }
 
-    static PlayerController BuildPlayer(Vector3 position, float yaw)
+    static Pickup PlacePickup(Transform room, PickupPrefabs.Look look, Vector3 position)
     {
-        GameObject root = new("Player");
+        var root = (GameObject)PrefabUtility.InstantiatePrefab(PickupPrefabs.Prefab(look), room);
+        root.transform.localPosition = position;
+        return root.GetComponent<Pickup>();
+    }
+
+    // The player comes from her prefab (see CharacterPrefabs); only where she starts belongs to the level.
+    internal static PlayerController BuildPlayer(Vector3 position, float yaw)
+    {
+        var root = (GameObject)PrefabUtility.InstantiatePrefab(CharacterPrefabs.PlayerPrefab);
         root.transform.SetPositionAndRotation(position, Quaternion.Euler(0f, yaw, 0f));
-        CharacterController controller = root.AddComponent<CharacterController>();
-        controller.center = new Vector3(0f, 0.85f, 0f);
-        controller.height = 1.7f;
-        controller.radius = 0.3f;
-
-        Animator animator = AttachEve(root.transform, out Transform handSocket, out Transform holsterSocket);
-        GameObject pistol = AssetDatabase.LoadAssetAtPath<GameObject>(PlayerAnimatorBuilder.PistolPath);
-        Transform gun;
-        Transform gunPoint = new GameObject("Gun Point").transform;
-        if (handSocket != null && pistol != null)
-        {
-            // The 1911 from the pistol pack: its barrel runs along +Z and the muzzle is 19 cm ahead of the grip.
-            gun = ((GameObject)PrefabUtility.InstantiatePrefab(pistol)).transform;
-            gun.name = "Handgun";
-            gun.SetParent(handSocket, false);
-            gunPoint.SetParent(gun, false);
-            gunPoint.localPosition = new Vector3(0f, 0.045f, 0.19f);
-        }
-        else
-        {
-            gun = Part(PrimitiveType.Cube, "Handgun", root.transform, new Vector3(0.24f, 0.95f, 0.12f), Vector3.zero, new Vector3(0.07f, 0.1f, 0.28f), gunMetal).transform;
-            if (handSocket != null) gun.SetParent(handSocket, false);
-            gunPoint.SetParent(gun, false);
-            gunPoint.localPosition = new Vector3(0f, 0f, 0.6f);
-        }
-        Light flash = gunPoint.gameObject.AddComponent<Light>();
-        flash.type = LightType.Point;
-        flash.color = new Color(1f, 0.75f, 0.35f);
-        flash.intensity = 5f;
-        flash.range = 7f;
-        flash.enabled = false;
-
-        // A dim light that follows the player so the character stays readable in dark corners.
-        GameObject fill = new("Fill Light");
-        fill.transform.SetParent(root.transform, false);
-        fill.transform.localPosition = new Vector3(0f, 2.3f, 0.6f);
-        Light fillLight = fill.AddComponent<Light>();
-        fillLight.type = LightType.Point;
-        fillLight.intensity = 0.5f;
-        fillLight.range = 4f;
-
-        PlayerController player = root.AddComponent<PlayerController>();
-        player.gunModel = gun;
-        player.gunPoint = gunPoint;
-        player.gunHandSocket = handSocket;
-        player.gunHolsterSocket = holsterSocket;
-        player.locomotion = AssetDatabase.LoadAssetAtPath<LocomotionProfile>(PlayerAnimatorBuilder.ProfilePath);
-        player.muzzleFlash = flash;
-        player.animator = animator;
-        ExcludeFromNavMesh(root);
-        return player;
-    }
-
-    // Where the 1911 sits in Eve's right hand, and in a holster on her right thigh. Measured in Play
-    // mode: in the standing aim pose the barrel then points straight ahead with the grip in her palm,
-    // and holstered it hangs barrel down on the outside of the thigh with the grip to the back.
-    public static readonly Vector3 GripPosition = new(-0.018f, 0.077f, -0.018f);
-    public static readonly Vector3 GripRotation = new(293.0f, 137.2f, 307.5f);
-    public static readonly Vector3 HolsterPosition = new(-0.107f, 0.153f, 0.026f);
-    public static readonly Vector3 HolsterRotation = new(270.0f, 193.5f, 0f);
-
-    // Eve replaces the capsule body. The handgun sits in a socket on her right-hand bone, so it follows
-    // the pistol clips, and moves to a socket on her thigh when she holsters it. Without the model,
-    // the old capsule body is built instead.
-    static Animator AttachEve(Transform player, out Transform handSocket, out Transform holsterSocket)
-    {
-        handSocket = holsterSocket = null;
-        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PlayerAnimatorBuilder.ModelPath);
-        if (prefab == null)
-        {
-            Part(PrimitiveType.Capsule, "Body", player, new Vector3(0f, 0.75f, 0f), Vector3.zero, new Vector3(0.5f, 0.75f, 0.35f), suit);
-            Part(PrimitiveType.Sphere, "Head", player, new Vector3(0f, 1.58f, 0f), Vector3.zero, Vector3.one * 0.27f, skin);
-            Part(PrimitiveType.Sphere, "Hair", player, new Vector3(0f, 1.64f, -0.03f), Vector3.zero, new Vector3(0.3f, 0.22f, 0.3f), hair);
-            return null;
-        }
-
-        PlayerAnimatorBuilder.Build();
-        GameObject model = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
-        model.name = "Eve";
-        model.transform.SetParent(player, false);
-        Animator animator = model.GetComponent<Animator>();
-        animator.runtimeAnimatorController = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(PlayerAnimatorBuilder.ControllerPath);
-        // Root motion is on only so RootMotionRelay can read how fast the animated steps go.
-        // The relay keeps the model in place; PlayerController moves the body.
-        animator.applyRootMotion = true;
-        model.AddComponent<RootMotionRelay>();
-
-        handSocket = Socket("Gun Socket", animator.GetBoneTransform(HumanBodyBones.RightHand), GripPosition, GripRotation);
-        holsterSocket = Socket("Holster Socket", animator.GetBoneTransform(HumanBodyBones.RightUpperLeg), HolsterPosition, HolsterRotation);
-        return animator;
-    }
-
-    static Transform Socket(string name, Transform bone, Vector3 position, Vector3 rotation)
-    {
-        if (bone == null) return null;
-        Transform socket = new GameObject(name).transform;
-        socket.SetParent(bone, false);
-        socket.SetLocalPositionAndRotation(position, Quaternion.Euler(rotation));
-        return socket;
+        return root.GetComponent<PlayerController>();
     }
 
     // An ambush raptor starts inactive and appears when the generator is switched on. It patrols
     // `patrol` in order; the points become markers in its room.
     static void BuildRaptor(Room room, Vector3 position, float yaw, bool ambush, params Vector3[] patrol)
     {
-        GameObject root = new(ambush ? "Velociraptor (Ambush)" : "Velociraptor");
-        root.transform.SetParent(room.root, false);
+        Raptor raptor = PlaceRaptor(room.root, ambush ? "Velociraptor (Ambush)" : "Velociraptor", position, yaw, patrol);
+        if (!ambush) return;
+        raptor.gameObject.SetActive(false);
+        ambushRaptors.Add(raptor.gameObject);
+    }
+
+    // A raptor from its prefab (see CharacterPrefabs), with patrol markers under `parent`. The
+    // markers and the start position are all the level adds; the body and its tuning live in the prefab.
+    internal static Raptor PlaceRaptor(Transform parent, string name, Vector3 position, float yaw, params Vector3[] patrol)
+    {
+        var root = (GameObject)PrefabUtility.InstantiatePrefab(CharacterPrefabs.RaptorPrefab, parent);
+        root.name = name;
         root.transform.SetLocalPositionAndRotation(position, Quaternion.Euler(0f, yaw, 0f));
-        CharacterController controller = root.AddComponent<CharacterController>();
-        controller.center = new Vector3(0f, 0.8f, 0f);
-        controller.height = 1.4f;
-        controller.radius = 0.45f;
-
-        Transform t = root.transform;
-        Part(PrimitiveType.Capsule, "Body", t, new Vector3(0f, 0.95f, 0f), new Vector3(90f, 0f, 0f), new Vector3(0.55f, 0.75f, 0.5f), raptorSkin);
-        Part(PrimitiveType.Capsule, "Neck", t, new Vector3(0f, 1.25f, 0.7f), new Vector3(40f, 0f, 0f), new Vector3(0.2f, 0.3f, 0.2f), raptorSkin);
-        Part(PrimitiveType.Cube, "Head", t, new Vector3(0f, 1.45f, 1f), Vector3.zero, new Vector3(0.28f, 0.28f, 0.55f), raptorSkin);
-        Part(PrimitiveType.Cube, "Jaw", t, new Vector3(0f, 1.29f, 1.05f), new Vector3(8f, 0f, 0f), new Vector3(0.22f, 0.08f, 0.45f), raptorDark);
-        Part(PrimitiveType.Sphere, "Eye", t, new Vector3(0.15f, 1.52f, 1.1f), Vector3.zero, Vector3.one * 0.06f, raptorEyes);
-        Part(PrimitiveType.Sphere, "Eye", t, new Vector3(-0.15f, 1.52f, 1.1f), Vector3.zero, Vector3.one * 0.06f, raptorEyes);
-        Part(PrimitiveType.Capsule, "Tail", t, new Vector3(0f, 1f, -1.15f), new Vector3(100f, 0f, 0f), new Vector3(0.22f, 0.7f, 0.22f), raptorDark);
-        foreach (float side in new[] { -1f, 1f })
-        {
-            Part(PrimitiveType.Cube, "Thigh", t, new Vector3(0.2f * side, 0.65f, -0.05f), new Vector3(-15f, 0f, 0f), new Vector3(0.16f, 0.5f, 0.3f), raptorSkin);
-            Part(PrimitiveType.Cube, "Shin", t, new Vector3(0.2f * side, 0.25f, 0.05f), new Vector3(10f, 0f, 0f), new Vector3(0.12f, 0.5f, 0.14f), raptorDark);
-            Part(PrimitiveType.Cube, "Arm", t, new Vector3(0.18f * side, 0.95f, 0.6f), new Vector3(30f, 0f, 0f), new Vector3(0.06f, 0.25f, 0.06f), raptorDark);
-        }
-
-        NavMeshAgent agent = root.AddComponent<NavMeshAgent>();
-        agent.radius = 0.45f;
-        agent.height = 1.6f;
-        agent.acceleration = 20f;
-        agent.stoppingDistance = 0.2f;
-        ExcludeFromNavMesh(root);
 
         var waypoints = new Transform[patrol.Length];
         for (int i = 0; i < patrol.Length; i++)
         {
             waypoints[i] = new GameObject("Patrol Point").transform;
-            waypoints[i].SetParent(room.root, false);
+            waypoints[i].SetParent(parent, false);
             waypoints[i].localPosition = patrol[i];
         }
-        root.AddComponent<Raptor>().waypoints = waypoints;
-
-        if (!ambush) return;
-        root.SetActive(false);
-        ambushRaptors.Add(root);
+        Raptor raptor = root.GetComponent<Raptor>();
+        raptor.waypoints = waypoints;
+        return raptor;
     }
 
-    static void BuildCameraAndUI(PlayerController player, string startRoomName)
+    internal static void BuildCameraAndUI(PlayerController player, string startRoomName)
     {
         GameObject cameraObject = new("Main Camera") { tag = "MainCamera" };
         Camera camera = cameraObject.AddComponent<Camera>();
@@ -932,7 +836,7 @@ public static class SceneBuilder
         ui.startRoomName = startRoomName.ToUpperInvariant();
     }
 
-    static void SetUpAtmosphere()
+    internal static void SetUpAtmosphere()
     {
         RenderSettings.skybox = null;
         RenderSettings.ambientMode = AmbientMode.Flat;
@@ -946,32 +850,33 @@ public static class SceneBuilder
     // ---------- Navigation ----------
 
     // Keeps an object and its children out of the bake, so its collider doesn't punch a hole in the NavMesh.
-    static void ExcludeFromNavMesh(GameObject target) => target.AddComponent<NavMeshModifier>().ignoreFromBuild = true;
+    internal static void ExcludeFromNavMesh(GameObject target) => target.AddComponent<NavMeshModifier>().ignoreFromBuild = true;
 
     // Bakes the walkable floor from the level's colliders and saves it as an asset next to the
     // scene, so the scene keeps it after a reload.
-    static void BakeNavMesh()
+    internal static void BakeNavMesh(string path)
     {
         NavMeshSurface surface = new GameObject("NavMesh").AddComponent<NavMeshSurface>();
         surface.collectObjects = CollectObjects.All;
         surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
         surface.BuildNavMesh();
 
-        AssetDatabase.DeleteAsset(NavMeshPath);
-        AssetDatabase.CreateAsset(surface.navMeshData, NavMeshPath);
+        AssetDatabase.DeleteAsset(path);
+        AssetDatabase.CreateAsset(surface.navMeshData, path);
     }
 
     // ---------- Primitives and materials ----------
 
-    static GameObject Box(string name, Transform parent, Vector3 localPosition, Vector3 scale, Material material, bool collider = true)
+    internal static GameObject Box(string name, Transform parent, Vector3 localPosition, Vector3 scale, Material material, bool collider = true)
     {
         GameObject box = Part(PrimitiveType.Cube, name, parent, localPosition, Vector3.zero, scale, material);
+        box.GetComponent<MeshFilter>().sharedMesh = MeterCube(scale);
         if (collider) box.AddComponent<BoxCollider>();
         return box;
     }
 
     // Model parts carry no collider: characters collide through their CharacterController only.
-    static GameObject Part(PrimitiveType type, string name, Transform parent, Vector3 localPosition, Vector3 localEuler, Vector3 scale, Material material)
+    internal static GameObject Part(PrimitiveType type, string name, Transform parent, Vector3 localPosition, Vector3 localEuler, Vector3 scale, Material material)
     {
         GameObject part = GameObject.CreatePrimitive(type);
         part.name = name;
@@ -984,19 +889,20 @@ public static class SceneBuilder
         return part;
     }
 
-    static void CreateMaterials()
+    internal static void CreateMaterials()
     {
-        concrete = Mat("Concrete", new Color(0.32f, 0.32f, 0.3f));
-        ground = Mat("Ground", new Color(0.13f, 0.14f, 0.12f), smoothness: 0.05f);
-        wall = Mat("Wall", new Color(0.42f, 0.44f, 0.42f));
-        fence = Mat("Fence", new Color(0.2f, 0.22f, 0.22f), smoothness: 0.3f);
-        ceiling = Mat("Ceiling", new Color(0.18f, 0.19f, 0.19f));
+        // Surfaces carry the HomebrewIK grid, one tile per meter, so sizes and distances read at a glance.
+        concrete = Mat("Concrete", new Color(0.32f, 0.32f, 0.3f), grid: true);
+        ground = Mat("Ground", new Color(0.13f, 0.14f, 0.12f), smoothness: 0.05f, grid: true);
+        wall = Mat("Wall", new Color(0.42f, 0.44f, 0.42f), grid: true);
+        fence = Mat("Fence", new Color(0.2f, 0.22f, 0.22f), smoothness: 0.3f, grid: true);
+        ceiling = Mat("Ceiling", new Color(0.18f, 0.19f, 0.19f), grid: true);
         metal = Mat("Metal", new Color(0.25f, 0.28f, 0.3f), smoothness: 0.5f);
-        crate = Mat("Crate", new Color(0.45f, 0.33f, 0.18f));
+        crate = Mat("Crate", new Color(0.45f, 0.33f, 0.18f), grid: true);
         door = Mat("Door", new Color(0.3f, 0.36f, 0.42f), smoothness: 0.4f);
         laser = Mat("Laser", new Color(1f, 0.1f, 0.1f), emission: new Color(1f, 0.05f, 0.05f));
-        tile = Mat("Tile", new Color(0.7f, 0.74f, 0.72f), smoothness: 0.6f);
-        duct = Mat("Duct", new Color(0.35f, 0.5f, 0.4f), smoothness: 0.5f);
+        tile = Mat("Tile", new Color(0.7f, 0.74f, 0.72f), smoothness: 0.6f, grid: true);
+        duct = Mat("Duct", new Color(0.35f, 0.5f, 0.4f), smoothness: 0.5f, grid: true);
         hazard = Mat("Hazard", new Color(0.75f, 0.55f, 0.1f), smoothness: 0.3f);
         suit = Mat("Suit", new Color(0.18f, 0.24f, 0.22f));
         skin = Mat("Skin", new Color(0.86f, 0.66f, 0.52f));
@@ -1018,27 +924,109 @@ public static class SceneBuilder
         AssetDatabase.SaveAssets();
     }
 
-    // Materials must be saved as assets; materials that exist only in memory are not
-    // written into the scene file and show up pink after a reload.
-    static Material Mat(string name, Color color, float smoothness = 0.15f, Color? emission = null)
+    // The URP materials of the HomebrewIK demo: its checkered floor, and the plain obstacles.
+    const string GridTemplate = "Assets/HomebrewIK/Demo/Materials/URP/Grid.mat";
+    const string PlainTemplate = "Assets/HomebrewIK/Demo/Materials/URP/Obstacle.mat";
+    static bool resettingMaterials;
+
+    // Puts every material in Assets/Materials back to the colours and settings written above.
+    [MenuItem("Dino Demo/Reset Environment Materials")]
+    static void ResetMaterials()
+    {
+        resettingMaterials = true;
+        try { CreateMaterials(); }
+        finally { resettingMaterials = false; }
+    }
+
+    // Materials must be saved as assets; materials that exist only in memory are not written into
+    // the scene file and show up pink after a reload. A material is set up once, from the HomebrewIK
+    // template, and afterwards left alone: change its colour, texture or shader in the Inspector and
+    // the next build keeps it. Only a material still on a built-in shader is set up again.
+    internal static Material Mat(string name, Color color, float smoothness = 0.15f, Color? emission = null, bool grid = false)
     {
         string path = $"{MaterialFolder}/{name}.mat";
         Material material = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (material != null && RenderSetup.IsUrp(material) && !resettingMaterials) return material;
+
+        Material template = AssetDatabase.LoadAssetAtPath<Material>(grid ? GridTemplate : PlainTemplate);
+        Shader lit = template != null ? template.shader : Shader.Find("Universal Render Pipeline/Lit");
         if (material == null)
         {
             Directory.CreateDirectory(MaterialFolder);
-            material = new Material(Shader.Find("Standard"));
+            material = new Material(lit);
             AssetDatabase.CreateAsset(material, path);
         }
-        material.color = color;
-        material.SetFloat("_Glossiness", smoothness);
+        material.shader = lit;
+        if (template != null) material.CopyPropertiesFromMaterial(template);
+        material.name = name;
+        if (grid)
+        {
+            // Box meshes have one UV unit per meter (see Box), and the checker repeats every 2 tiles.
+            material.SetTextureScale("_BaseMap", Vector2.one * 0.5f);
+        }
+        else
+        {
+            material.SetTexture("_BaseMap", null);
+            material.SetTexture("_MainTex", null);
+        }
+        material.SetColor("_BaseColor", color);
+        material.SetColor("_Color", color);
+        material.SetFloat("_Smoothness", smoothness);
         if (emission is Color emissionColor)
         {
             material.EnableKeyword("_EMISSION");
             material.SetColor("_EmissionColor", emissionColor);
             material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
         }
+        else
+        {
+            material.DisableKeyword("_EMISSION");
+            material.SetColor("_EmissionColor", Color.black);
+        }
         EditorUtility.SetDirty(material);
         return material;
+    }
+
+    // ---------- Meshes ----------
+
+    // Cubes with UVs in meters, shared between boxes of the same size, so a grid texture keeps the
+    // same size on every wall and floor however the box is stretched. Kept in the scene file.
+    static readonly Dictionary<Vector3Int, Mesh> boxMeshes = new();
+
+    internal static Mesh MeterCube(Vector3 size)
+    {
+        var key = Vector3Int.RoundToInt(size * 1000f);
+        if (boxMeshes.TryGetValue(key, out Mesh cached) && cached != null) return cached;
+        var mesh = new Mesh { name = $"Box {size.x:0.##}x{size.y:0.##}x{size.z:0.##}" };
+        var vertices = new List<Vector3>();
+        var normals = new List<Vector3>();
+        var uvs = new List<Vector2>();
+        var triangles = new List<int>();
+        void Face(Vector3 normal, Vector3 u, Vector3 v, float width, float height)
+        {
+            int first = vertices.Count;
+            Vector3 center = normal * 0.5f;
+            foreach ((float a, float b) in new[] { (-0.5f, -0.5f), (0.5f, -0.5f), (0.5f, 0.5f), (-0.5f, 0.5f) })
+            {
+                vertices.Add(center + u * a + v * b);
+                normals.Add(normal);
+                uvs.Add(new Vector2((a + 0.5f) * width, (b + 0.5f) * height));
+            }
+            triangles.AddRange(new[] { first, first + 2, first + 1, first, first + 3, first + 2 });
+        }
+        Face(Vector3.forward, Vector3.left, Vector3.up, size.x, size.y);
+        Face(Vector3.back, Vector3.right, Vector3.up, size.x, size.y);
+        Face(Vector3.right, Vector3.forward, Vector3.up, size.z, size.y);
+        Face(Vector3.left, Vector3.back, Vector3.up, size.z, size.y);
+        Face(Vector3.up, Vector3.right, Vector3.forward, size.x, size.z);
+        Face(Vector3.down, Vector3.right, Vector3.back, size.x, size.z);
+        mesh.SetVertices(vertices);
+        mesh.SetNormals(normals);
+        mesh.SetUVs(0, uvs);
+        mesh.SetTriangles(triangles, 0);
+        mesh.RecalculateTangents();
+        mesh.RecalculateBounds();
+        boxMeshes[key] = mesh;
+        return mesh;
     }
 }

@@ -1,17 +1,20 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 // Third-person controls: WASD or the left stick moves relative to where the camera looks, and Eve
 // turns to face where she is heading. Standing, she steps round on the spot; on the move she curves
 // and leans into the turn, and slows for a sharp one. Holding aim turns her with the camera and lets
 // her strafe; shots go to the crosshair at the center of the screen, also on the move.
-// She can crouch, jump, reload, and holster or draw the pistol. Her speeds and turn rates come from
-// the LocomotionProfile that PlayerAnimatorBuilder measures from the clips, so her feet keep up.
+// She can crouch, jump, reload, and holster or draw the pistol; holding the trigger keeps firing.
+// Holstered she moves exactly as with the pistol down, with empty hands. Her speeds and turn rates
+// come from the LocomotionProfile that PlayerAnimatorBuilder measures from the clips, so her feet keep up.
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
 {
-    // Stances, as PlayerAnimatorBuilder lays them out in the Animator.
-    const int HolsteredStance = 0, RelaxedStance = 1, AimStance = 2, CrouchStance = 3, CrouchAimStance = 4, HurtStance = 5, HurtHolsteredStance = 6, CrouchHolsteredStance = 7;
+    // Stances, as PlayerAnimatorBuilder lays them out in the Animator. Holstered or not, she uses the
+    // same ones; the Animator's Unarmed Arms layer empties her hands.
+    const int RelaxedStance = 1, AimStance = 2, CrouchStance = 3, CrouchAimStance = 4, HurtStance = 5;
     // Jumps, as the Animator's JumpKind.
     const int JumpStand = 0, JumpRun = 1, JumpAimStand = 2, JumpAimForward = 3, JumpAimLeft = 4, JumpAimRight = 5;
     // How long a jump winds up before she leaves the ground, and how long a reload takes; the
@@ -32,7 +35,7 @@ public class PlayerController : MonoBehaviour
     public float turnResponse = 5f;
     public float maxMovingTurnRate = 220f;
     public float turnAcceleration = 1200f;
-    // Farther off than this, standing, she turns on the spot before she sets off.
+    // Crouched and farther off than this, she turns on the spot before she sets off.
     public float turnOnSpotAngle = 50f;
     // Aiming, with the camera this far round, she pivots a quarter turn at once.
     public float quickTurnAngle = 80f;
@@ -42,17 +45,17 @@ public class PlayerController : MonoBehaviour
     public float standingHeight = 1.7f;
     public float crouchingHeight = 1.15f;
 
-    [Header("Unarmed (pistol holstered)")]
-    [Tooltip("Sprint speed with the pistol holstered, in m/s. The run clip covers 3.07 m/s at its own pace; faster plays it faster so the feet keep up.")]
-    public float unarmedSprintSpeed = 3.1f;
-    [Tooltip("Standing and facing farther off than this, she turns before setting off (a Mixamo quarter turn if the clips are in). Below it she sets off at once and curves round.")]
-    public float unarmedTurnOnSpotAngle = 120f;
+    [Header("Standing up, not aiming (pistol down or holstered)")]
+    [Tooltip("Sprint speed, in m/s. 0 sprints at the pace the Locomotion asset gives the run; faster plays the run faster so the feet keep up.")]
+    [FormerlySerializedAs("unarmedSprintSpeed")] public float sprintSpeed = 0f;
+    [Tooltip("Standing and facing farther off than this, she turns on the spot before setting off. Below it she sets off at once and curves round.")]
+    [FormerlySerializedAs("unarmedTurnOnSpotAngle")] public float freeTurnOnSpotAngle = 120f;
     [Tooltip("The fastest she turns on the move, in degrees per second.")]
-    public float unarmedMaxTurnRate = 260f;
+    [FormerlySerializedAs("unarmedMaxTurnRate")] public float freeMaxTurnRate = 260f;
     [Tooltip("How quickly a turn builds up and eases off, in degrees per second squared. Lower is smoother.")]
-    public float unarmedTurnAcceleration = 700f;
+    [FormerlySerializedAs("unarmedTurnAcceleration")] public float freeTurnAcceleration = 700f;
     [Tooltip("In a sharp turn she slows to this share of her speed rather than stopping, so she curves round instead of spinning on the spot.")]
-    [Range(0f, 1f)] public float unarmedSharpTurnSpeedShare = 0.35f;
+    [FormerlySerializedAs("unarmedSharpTurnSpeedShare")] [Range(0f, 1f)] public float sharpTurnSpeedShare = 0.35f;
 
     [Header("Combat")]
     public int maxHealth = 100;
@@ -75,6 +78,17 @@ public class PlayerController : MonoBehaviour
     public Transform gunHolsterSocket;
     public Light muzzleFlash;
     public Animator animator;
+
+    [Header("Sounds and effects")]
+    public AudioSource audioSource;
+    public AudioClip[] fireSounds = new AudioClip[0];
+    public AudioClip[] shellSounds = new AudioClip[0];
+    public AudioClip dryFireSound, reloadSound, drawSound;
+    // Played at the muzzle on every shot (a child of the gun point, so it travels with the gun).
+    public ParticleSystem muzzleEffect;
+    // Spawned where a shot lands: on a raptor, on metal (a material named Metal, Door, Duct or
+    // Fence), or on anything else.
+    public GameObject fleshImpact, metalImpact, stoneImpact;
 
     [HideInInspector] public bool inputLocked;
 
@@ -123,6 +137,8 @@ public class PlayerController : MonoBehaviour
 
     float reloadTimer;
     bool roundsIn;
+    // True while she holds the trigger and the pistol keeps firing.
+    bool rapidFire;
     WeaponAction weaponAction;
     float weaponTimer;
     float jumpTimer;
@@ -198,12 +214,17 @@ public class PlayerController : MonoBehaviour
         if (canAct)
         {
             // The mouse only shoots while the game has it, so clicking back into the window doesn't fire.
-            bool fire = GameInput.Fire.WasPressedThisFrame()
-                && (Cursor.lockState == CursorLockMode.Locked || !GameInput.FromMouse(GameInput.Fire));
-            if (fire && Time.time >= nextShotTime) PullTrigger();
+            bool mouseOk = Cursor.lockState == CursorLockMode.Locked || !GameInput.FromMouse(GameInput.Fire);
+            bool fire = GameInput.Fire.WasPressedThisFrame() && mouseOk;
+            bool held = GameInput.Fire.IsPressed() && mouseOk;
+            if (fire && Time.time >= nextShotTime) PullTrigger(rapid: false);
+            // Held down, the pistol keeps firing at the pace of the continuous-fire clip.
+            else if (held && !fire && Time.time >= nextShotTime && CanFire && Loaded > 0) PullTrigger(rapid: true);
+            if (!held || !CanFire || Loaded <= 0) rapidFire = false;
             if (GameInput.Jump.WasPressedThisFrame()) TryJump();
             if (!IsAiming) UpdateInteraction();
         }
+        else rapidFire = false;
 
         // The pistol pose lives in the animation once Eve is on. The primitive gun still lifts by hand.
         if (gunModel != null && animator == null)
@@ -269,46 +290,26 @@ public class PlayerController : MonoBehaviour
         else
         {
             movingForward = true;
-            // Unarmed she sets off at once and curves round; only a big turn from a stand happens on
-            // the spot, as a Mixamo quarter turn when the clips are in.
-            bool unarmed = IsHolstered && !IsCrouching;
-            if (unarmed && QuickTurning())
-            {
-                turnRate = rootMotion.TurnSpeed;
-                transform.Rotate(0f, turnRate * Time.deltaTime, 0f);
-                turningOnSpot = false;
-                travel = Vector3.MoveTowards(travel, Vector3.zero, deceleration * Time.deltaTime);
-                travelShare = 1f;
-                return;
-            }
+            // Standing up she sets off at once and curves round; only a big turn from a stand happens
+            // on the spot. Crouched, she turns on the spot sooner.
+            bool free = !IsCrouching;
             if (wantsToMove)
             {
                 float error = Mathf.DeltaAngle(yaw, Quaternion.LookRotation(move).eulerAngles.y);
-                float onSpotAngle = unarmed ? unarmedTurnOnSpotAngle : turnOnSpotAngle;
-                bool standing = speed < (unarmed ? 0.15f : 0.4f);
-                bool quickTurn = false;
+                float onSpotAngle = free ? freeTurnOnSpotAngle : turnOnSpotAngle;
+                bool standing = speed < (free ? 0.15f : 0.4f);
                 // Standing and facing well away, she steps round first and sets off once nearly there.
-                if (standing && Mathf.Abs(error) > onSpotAngle)
-                {
-                    // Only the healthy unarmed stance has quarter turns; hurt she turns in place.
-                    if (unarmed && Stance() == HolsteredStance && p.unarmed.quickTurns && animator != null && rootMotion != null)
-                    {
-                        animator.SetInteger("TurnSide", error < 0f ? -1 : 1);
-                        animator.SetTrigger("QuickTurn");
-                        quickTurn = true;
-                    }
-                    else turningOnSpot = true;
-                }
+                if (standing && Mathf.Abs(error) > onSpotAngle) turningOnSpot = true;
                 else if (Mathf.Abs(error) < 20f) turningOnSpot = false;
-                if (!quickTurn && animator != null) animator.ResetTrigger("QuickTurn");
-                float movingRate = unarmed ? unarmedMaxTurnRate : maxMovingTurnRate;
+                if (animator != null) animator.ResetTrigger("QuickTurn");
+                float movingRate = free ? freeMaxTurnRate : maxMovingTurnRate;
                 float maxRate = turningOnSpot ? p.maxTurnInPlaceRate : Mathf.Lerp(movingRate, movingRate * 0.7f, speed / p.run);
                 targetRate = Mathf.Clamp(error * turnResponse, -maxRate, maxRate);
                 // A sharp turn slows her down, so she curves round rather than running a wide arc.
                 float sharpness = Mathf.Clamp01(1f - (Mathf.Abs(error) - 45f) / 120f);
-                if (unarmed) sharpness = Mathf.Max(sharpness, unarmedSharpTurnSpeedShare);
+                if (free) sharpness = Mathf.Max(sharpness, sharpTurnSpeedShare);
                 float top = TopSpeed(p, wantsToSprint);
-                desired = turningOnSpot || quickTurn ? Vector3.zero : transform.forward * (amount * top * sharpness);
+                desired = turningOnSpot ? Vector3.zero : transform.forward * (amount * top * sharpness);
             }
             else
             {
@@ -317,7 +318,7 @@ public class PlayerController : MonoBehaviour
         }
 
         // Turns build up and ease off rather than snapping.
-        float turnEase = IsHolstered && !IsAiming && !IsCrouching ? unarmedTurnAcceleration : turnAcceleration;
+        float turnEase = !IsAiming && !IsCrouching ? freeTurnAcceleration : turnAcceleration;
         turnRate = Mathf.MoveTowards(turnRate, targetRate, turnEase * Time.deltaTime);
         if (!wantsToMove && !IsAiming) turnRate = Mathf.MoveTowards(turnRate, 0f, turnAcceleration * Time.deltaTime);
         transform.Rotate(0f, turnRate * Time.deltaTime, 0f);
@@ -343,11 +344,9 @@ public class PlayerController : MonoBehaviour
 
     float TopSpeed(LocomotionProfile p, bool sprint)
     {
-        if (IsCrouching) return IsHolstered ? p.unarmed.crouchWalk : p.crouchWalk;
-        bool hurt = Status == "DANGER";
-        if (IsHolstered) return hurt ? (sprint ? p.hurtRun : p.hurtWalk) : sprint ? unarmedSprintSpeed : p.holsteredWalk;
-        if (hurt) return sprint ? p.hurtRun : p.hurtWalk;
-        return sprint ? p.run : p.walk;
+        if (IsCrouching) return p.crouchWalk;
+        if (Status == "DANGER") return sprint ? p.hurtRun : p.hurtWalk;
+        return sprint ? (sprintSpeed > 0f ? sprintSpeed : p.run) : p.walk;
     }
 
     // In a curve that a clip leans through, she keeps only the share of her speed that the clip's
@@ -538,7 +537,10 @@ public class PlayerController : MonoBehaviour
         if (IsHolstered && GameInput.Aim.IsPressed()) StartDraw();
     }
 
-    void PullTrigger()
+    // Free to shoot: the pistol drawn and in hand, not mid-reload.
+    bool CanFire => !IsHolstered && weaponAction == WeaponAction.None && !IsReloading;
+
+    void PullTrigger(bool rapid)
     {
         if (IsHolstered)
         {
@@ -549,11 +551,12 @@ public class PlayerController : MonoBehaviour
         if (Loaded <= 0)
         {
             nextShotTime = Time.time + shotCooldown;
+            Play(dryFireSound);
             if (!TryReload()) GameUI.Instance.ShowMessage("*click* Out of ammo.");
             return;
         }
         idleTime = 0f;
-        Shoot(IsAiming ? aimAssistAngle : hipFireAssistAngle);
+        Shoot(IsAiming ? aimAssistAngle : hipFireAssistAngle, rapid);
     }
 
     bool TryReload()
@@ -561,6 +564,7 @@ public class PlayerController : MonoBehaviour
         if (IsHolstered || weaponAction != WeaponAction.None || IsReloading || Loaded >= magazineSize || ammo <= 0 || IsDead) return false;
         reloadTimer = ReloadTime;
         roundsIn = false;
+        Play(reloadSound);
         if (animator != null) animator.SetTrigger("Reload");
         return true;
     }
@@ -570,6 +574,7 @@ public class PlayerController : MonoBehaviour
         if (!IsHolstered || weaponAction != WeaponAction.None || gunHandSocket == null || IsDead) return;
         weaponAction = WeaponAction.Drawing;
         weaponTimer = 0f;
+        Play(drawSound);
         if (animator != null) animator.SetTrigger("Draw");
     }
 
@@ -594,16 +599,15 @@ public class PlayerController : MonoBehaviour
 
     int Stance()
     {
-        bool hurt = Status == "DANGER";
-        if (IsCrouching) return IsAiming ? CrouchAimStance : IsHolstered ? CrouchHolsteredStance : CrouchStance;
-        if (IsHolstered) return hurt ? HurtHolsteredStance : HolsteredStance;
+        if (IsCrouching) return IsAiming ? CrouchAimStance : CrouchStance;
         if (IsAiming) return AimStance;
-        return hurt ? HurtStance : RelaxedStance;
+        return Status == "DANGER" ? HurtStance : RelaxedStance;
     }
 
-    // Speed is metres per second along the facing when aiming, otherwise the travel speed; in a leaning
-    // curve it is the straight pace the curve was slowed from, so the blend stays in the same gait.
-    // Strafe is only used by the aiming blends, because free movement turns the body to face the step.
+    // Speed and Strafe are metres per second along her facing and to her right; in a leaning curve
+    // Speed is the straight pace the curve was slowed from, so the blend stays in the same gait. Free
+    // movement turns the body to face the step, so it only steps back or aside when something pushes
+    // her off her facing, like a wall she slides along.
     // Moving, Sprint and Forward are what the player asks for: they pick first steps, stops and starts.
     void DriveAnimator()
     {
@@ -614,13 +618,13 @@ public class PlayerController : MonoBehaviour
         int stance = Stance();
         bool strafing = stance == AimStance || stance == CrouchAimStance;
         // Running into a wall stops her at once; the gait eases down rather than snapping to a stand.
-        float speed = strafing ? Vector3.Dot(velocity, transform.forward) / share : velocity.magnitude / share;
+        float speed = Vector3.Dot(velocity, transform.forward) / share;
         speedParameter = speed > speedParameter || strafing ? speed : Mathf.MoveTowards(speedParameter, speed, 25f * Time.deltaTime);
         animator.SetFloat("Speed", speedParameter);
-        // The unarmed run sits at its own pace in the blend; a faster sprint plays the state faster.
+        // The run sits at its own pace in the blend; a faster sprint plays the state faster.
         LocomotionProfile p = Profile;
-        animator.SetFloat("MoveScale", stance == HolsteredStance && speedParameter > p.holsteredRun ? speedParameter / p.holsteredRun : 1f);
-        animator.SetFloat("Strafe", strafing ? Vector3.Dot(velocity, transform.right) : 0f);
+        animator.SetFloat("MoveScale", stance == RelaxedStance && speedParameter > p.run ? speedParameter / p.run : 1f);
+        animator.SetFloat("Strafe", Vector3.Dot(velocity, transform.right));
         animator.SetFloat("Travel", travel.magnitude);
         animator.SetFloat("TurnRate", turnRate);
         animator.SetInteger("Stance", stance);
@@ -631,6 +635,7 @@ public class PlayerController : MonoBehaviour
         animator.SetBool("Forward", movingForward);
         animator.SetBool("TurnInPlace", turningOnSpot);
         animator.SetBool("Grounded", !airborne);
+        animator.SetBool("RapidFire", rapidFire);
         animator.SetFloat("CrouchBlend", CrouchAmount);
 
         // Where the camera looks: up and down for the pistol or the head, and how far the body still
@@ -645,15 +650,12 @@ public class PlayerController : MonoBehaviour
         if (aimLayer >= 0) animator.SetLayerWeight(aimLayer, aimWeight);
         if (lookLayer >= 0) animator.SetLayerWeight(lookLayer, lookWeight * 0.7f);
 
-        // Unarmed, where a pistol-pack clip stands in (turning on the spot, crouching), her arms hang
-        // relaxed instead of holding a pistol that is in its holster.
-        bool standIn = (turningOnSpot && (stance == HolsteredStance || stance == HurtHolsteredStance))
-            || (stance == CrouchHolsteredStance && p.unarmed.crouchStandIn);
-        armsWeight = Mathf.MoveTowards(armsWeight, standIn && IsHolstered && weaponAction == WeaponAction.None ? 1f : 0f, 6f * Time.deltaTime);
+        // Holstered, the arms layer gives her empty hands; drawing or holstering, the upper body takes over.
+        armsWeight = Mathf.MoveTowards(armsWeight, IsHolstered && weaponAction == WeaponAction.None ? 1f : 0f, 6f * Time.deltaTime);
         if (armsLayer >= 0) animator.SetLayerWeight(armsLayer, armsWeight);
 
         // Standing still a while, she looks around.
-        bool still = stance == RelaxedStance && !wantsToMove && !turningOnSpot && travel.sqrMagnitude < 0.01f && !IsReloading && weaponAction == WeaponAction.None;
+        bool still = (stance == RelaxedStance || stance == AimStance) && !wantsToMove && !turningOnSpot && travel.sqrMagnitude < 0.01f && !IsReloading && weaponAction == WeaponAction.None;
         idleTime = still ? idleTime + Time.deltaTime : 0f;
         animator.SetFloat("IdleTime", idleTime);
     }
@@ -662,17 +664,22 @@ public class PlayerController : MonoBehaviour
 
     // ---- Shooting ----
 
-    void Shoot(float assistAngle)
+    // A rapid shot keeps the continuous-fire loop going instead of starting a single shot.
+    void Shoot(float assistAngle, bool rapid)
     {
-        nextShotTime = Time.time + shotCooldown;
+        nextShotTime = Time.time + (rapid ? Profile.rapidFireInterval : shotCooldown);
+        rapidFire = rapid;
         Loaded--;
-        if (animator != null) animator.SetTrigger("Fire");
+        if (animator != null && !rapid) animator.SetTrigger("Fire");
         if (muzzleFlash != null)
         {
             muzzleFlash.enabled = true;
             CancelInvoke(nameof(HideMuzzleFlash));
             Invoke(nameof(HideMuzzleFlash), 0.06f);
         }
+        if (muzzleEffect != null) muzzleEffect.Play(true);
+        Play(fireSounds);
+        if (shellSounds.Length > 0) Invoke(nameof(PlayShell), 0.35f);
 
         // Gunshots are loud: every raptor nearby comes to investigate.
         Raptor.MakeNoise(transform.position, 18f);
@@ -689,8 +696,37 @@ public class PlayerController : MonoBehaviour
         {
             Raptor hitRaptor = hit.collider.GetComponentInParent<Raptor>();
             if (hitRaptor != null) hitRaptor.TakeHit(shotDamage, direction);
+            SpawnImpact(hit, hitRaptor != null);
         }
     }
+
+    void SpawnImpact(RaycastHit hit, bool flesh)
+    {
+        GameObject prefab = flesh ? fleshImpact : IsMetal(hit.collider) ? metalImpact : stoneImpact;
+        if (prefab == null) return;
+        GameObject impact = Instantiate(prefab, hit.point, Quaternion.LookRotation(hit.normal));
+        Destroy(impact, 3f);
+    }
+
+    static bool IsMetal(Collider collider)
+    {
+        Renderer renderer = collider.GetComponent<Renderer>();
+        if (renderer == null || renderer.sharedMaterial == null) return false;
+        string name = renderer.sharedMaterial.name;
+        return name.Contains("Metal") || name.Contains("Door") || name.Contains("Duct") || name.Contains("Fence");
+    }
+
+    void Play(AudioClip clip)
+    {
+        if (audioSource != null && clip != null) audioSource.PlayOneShot(clip);
+    }
+
+    void Play(AudioClip[] clips)
+    {
+        if (clips.Length > 0) Play(clips[Random.Range(0, clips.Length)]);
+    }
+
+    void PlayShell() => Play(shellSounds);
 
     // What the crosshair at the center of the screen points at: the raptor closest to it within
     // the assist cone that the shot can actually reach, otherwise whatever the view ray hits.

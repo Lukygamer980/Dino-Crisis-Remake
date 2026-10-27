@@ -37,6 +37,8 @@ public class Raptor : MonoBehaviour
     public float lookAroundDuration = 6f;
     // Its screech on spotting the player calls other raptors this close over to look.
     public float packCallRadius = 14f;
+    // On spotting the player it stops this long to screech, so the screech clip plays on the spot.
+    public float screechTime = 0.8f;
 
     enum State { Patrol, Investigate, Chase, Search, LookAround, WindUp, Recover, Stagger, Dead }
 
@@ -46,6 +48,7 @@ public class Raptor : MonoBehaviour
     int waypointIndex;
     bool pausedAtWaypoint;
     Vector3 lastSeenPosition;
+    float screechEnd;
     Vector3 lookTarget;
     float nextGlanceTime;
     Vector3 knockback;
@@ -54,6 +57,10 @@ public class Raptor : MonoBehaviour
     CharacterController body;
     Renderer[] bodyRenderers;
     Color[] originalColors;
+    // The animated model's, when it has one (built by RaptorAnimatorBuilder); the primitive raptor has none.
+    Animator animator;
+    static readonly int SpeedParameter = Animator.StringToHash("Speed");
+    static readonly int SearchingParameter = Animator.StringToHash("Searching");
 
     void OnEnable() => All.Add(this);
 
@@ -65,6 +72,8 @@ public class Raptor : MonoBehaviour
         agent = GetComponent<NavMeshAgent>();
         agent.updateRotation = false;
         body = GetComponent<CharacterController>();
+        animator = GetComponentInChildren<Animator>();
+        if (animator != null && animator.runtimeAnimatorController == null) animator = null;
     }
 
     void Start()
@@ -92,7 +101,8 @@ public class Raptor : MonoBehaviour
         if (knockback.sqrMagnitude > 0.0001f) agent.Move(knockback * Time.deltaTime);
         knockback = Vector3.MoveTowards(knockback, Vector3.zero, 10f * Time.deltaTime);
 
-        bool busy = state is State.WindUp or State.Recover or State.Stagger;
+        bool screeching = state == State.Chase && Time.time < screechEnd;
+        bool busy = state is State.WindUp or State.Recover or State.Stagger || screeching;
         agent.isStopped = busy;
         if (seesPlayer && !busy)
         {
@@ -134,6 +144,11 @@ public class Raptor : MonoBehaviour
                 break;
 
             case State.Chase:
+                if (screeching)
+                {
+                    Face(player.transform.position);
+                    break;
+                }
                 timeWithoutSight = seesPlayer ? 0f : timeWithoutSight + Time.deltaTime;
                 if (player.IsDead)
                 {
@@ -149,6 +164,7 @@ public class Raptor : MonoBehaviour
                 {
                     state = State.WindUp;
                     stateTimer = attackWindUp;
+                    if (animator != null) animator.SetTrigger("Attack");
                 }
                 else
                 {
@@ -180,6 +196,12 @@ public class Raptor : MonoBehaviour
         }
 
         if (!busy && state != State.LookAround && agent.velocity.sqrMagnitude > 0.01f) Face(agent.steeringTarget);
+
+        if (animator != null)
+        {
+            animator.SetFloat(SpeedParameter, busy ? 0f : agent.velocity.magnitude, 0.1f, Time.deltaTime);
+            animator.SetBool(SearchingParameter, state == State.LookAround);
+        }
     }
 
     void GoTo(Vector3 destination, float speed)
@@ -246,6 +268,8 @@ public class Raptor : MonoBehaviour
         if (IsHunting) return;
         state = State.Chase;
         timeWithoutSight = 0f;
+        screechEnd = Time.time + screechTime;
+        if (animator != null) animator.SetTrigger("Alert");
         GameUI.Instance.ShowMessage("*SCREECH*", 1.2f);
         MakeNoise(transform.position, packCallRadius);
     }
@@ -282,14 +306,24 @@ public class Raptor : MonoBehaviour
             state = State.Dead;
             agent.enabled = false;
             body.enabled = false;
-            transform.Rotate(0f, 0f, 90f);
-            transform.position += Vector3.up * 0.4f;
+            foreach (Collider hitbox in GetComponentsInChildren<Collider>()) hitbox.enabled = false;
+            if (animator != null)
+            {
+                animator.SetInteger("DeathIndex", Random.Range(0, 2));
+                animator.SetTrigger("Die");
+            }
+            else
+            {
+                transform.Rotate(0f, 0f, 90f);
+                transform.position += Vector3.up * 0.4f;
+            }
             All.Remove(this);
             return;
         }
 
         direction.y = 0f;
         knockback = direction.normalized * 2.5f;
+        if (animator != null) animator.SetTrigger("Hit");
         state = State.Stagger;
         stateTimer = staggerDuration;
         // Being shot gives the shooter away.

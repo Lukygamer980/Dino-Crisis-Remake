@@ -5,20 +5,26 @@ using UnityEditor.Animations;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-// Phase 2: turns the clips in Assets/Characters/Player into Eve's Animator.
+// Phase 2: turns the clips into the player's Animator.
 //
-// With the pistol drawn Eve moves on the MocapOnline "Pistol Basic 27A" set: relaxed, aiming,
-// crouched and crouched aiming, each with turns in place that step her feet round and curves that
-// lean on the move. With the pistol holstered she moves on the Mixamo clips, which start with a
-// first step. Fire, reload, draw and holster play on an upper-body layer, so she can do them on the
-// move; two additive layers point the pistol, or the head, where the camera looks.
+// The model is picked in the Player Character asset (see PlayerCharacterSetup); by default it is the
+// pack's own MotusMan, the skeleton the clips were recorded on. Every clip comes from the MocapOnline
+// "Pistol Basic 27A" set: relaxed, aiming, crouched and crouched aiming, with steps
+// back and aside, turns in place that step her feet round, and curves that lean on the move. Fire,
+// reload, draw and holster play on an upper-body layer, so she can do them on the move; two additive
+// layers point the pistol, or the head, where the camera looks.
+//
+// The set has no clips without the pistol in hand, and even the free left arm is held ready rather
+// than swinging. Holstered she moves on the same relaxed clips, and the Unarmed Arms layer, synced to
+// the base layer, gives her arms that hang loose and swing against each clip's own steps.
 //
 // PlayerController moves and turns the body. Root motion only reports how fast the animated steps
 // go (first steps and stops). Speeds and turn rates come from the clips themselves and are written
 // to Eve Locomotion.asset, which PlayerController reads.
 public static class PlayerAnimatorBuilder
 {
-    public const string ModelPath = "Assets/Characters/Player/Eve By J.Gonzales.fbx";
+    // The model from the Player Character asset.
+    public static string ModelPath => Setup.model != null ? AssetDatabase.GetAssetPath(Setup.model) : "";
     public const string ControllerPath = "Assets/Characters/Player/Eve.controller";
     public const string ProfilePath = "Assets/Characters/Player/Eve Locomotion.asset";
     public const string PistolPath = Pack + "/Pistol/1911_01.fbx";
@@ -29,33 +35,14 @@ public static class PlayerAnimatorBuilder
     const string SplitJumps = Pack + "/Animation/In-Place/Split_Jumps/";
     const string HolsterAndFire = Pack + "/Animation/Holster_and_Fire/";
     const string AimOffsets = Pack + "/Animation/Aim_Offsets/";
-    const string Mixamo = "Assets/Characters/Player/animations/";
+    // The pack's files on the Unreal mannequin's skeleton share the avatar of this one.
+    const string MannequinSource = Loops + "W1_Jog_F_Loop.fbx";
 
-    // Unarmed clips (pistol holstered), Mixamo, in Assets/Characters/Player/animations. To swap one,
-    // replace the file under the same name (or change the name here) and run
-    // Dino Demo > Build Player Animator: speeds, the first step's hand-over and the gaits are measured
-    // from the clips again. Download from Mixamo as FBX for Unity, Without Skin, 30 fps, and leave
-    // In Place unticked: the builder measures each stride from the root's travel.
-    const string UnarmedIdle = "Idle.fbx";
-    const string UnarmedStart = "Female Start Walking.fbx";
-    const string UnarmedWalk = "Female Walk.fbx";
-    const string UnarmedRun = "Running.fbx";
-    // Optional unarmed clips. While a file is missing, a pistol-pack clip stands in for it, with the
-    // arms overridden by the unarmed idle so she doesn't hold an invisible pistol.
-    const string UnarmedCrouchIdle = "Crouch Idle.fbx";
-    const string UnarmedCrouchWalk = "Crouched Walking.fbx";
-    const string UnarmedTurnLeft = "Left Turn 90.fbx";
-    const string UnarmedTurnRight = "Right Turn 90.fbx";
-    // Eve wears high heels, so any bend of the foot up past her neutral pose reads as a broken ankle.
-    // Her avatar lets the foot bend up only this far and twist only this far (degrees; Unity's
-    // defaults are 50 and 30).
-    const float FootUpLimit = 25f;
-    const float FootTwistLimit = 12f;
     const string Generated = "Assets/Characters/Player/Generated";
+    const string ArmsFolder = Generated + "/Unarmed Arms";
 
     // Speeds that are a design choice, not a clip's own pace. Raptors chase at 4.7 m/s.
     const float SprintSpeed = 4.4f;
-    const float LimpFactor = 0.6f;
     // The turn-in-place loops step 45 degrees in 0.67 s. Played up to three times as fast, she still
     // turns round in under a second.
     const float MaxTurnInPlaceRate = 200f;
@@ -63,114 +50,177 @@ public static class PlayerAnimatorBuilder
     const float BriskWalk = 1.35f;
     // Every reload takes this long, so PlayerController knows when the rounds go in.
     public const float ReloadTime = 1.6f;
+    // The continuous-fire loops fire four rounds a cycle; holding the trigger fires at that pace.
+    const int RapidShotsPerLoop = 4;
+    // A hit is the first 20 frames of falling backward: she staggers, and catches herself before the fall.
+    const int HitFrames = 20;
 
-    // Stances, as the Stance parameter that PlayerController sets.
-    public const int Holstered = 0, Relaxed = 1, Aim = 2, Crouch = 3, CrouchAim = 4, Hurt = 5, HurtHolstered = 6, CrouchHolstered = 7;
+    // Stances, as the Stance parameter that PlayerController sets. Holstered or not, she stands,
+    // crouches and limps on the same states; only the Unarmed Arms layer tells them apart.
+    public const int Relaxed = 1, Aim = 2, Crouch = 3, CrouchAim = 4, Hurt = 5;
     // Jumps, as the JumpKind parameter.
     public const int JumpStand = 0, JumpRun = 1, JumpAimStand = 2, JumpAimForward = 3, JumpAimLeft = 4, JumpAimRight = 5;
 
+    // The pack holsters the pistol in the middle of the back ("MOB"). This is where its holster clip
+    // lets go of it and its draw clip takes hold, in MotusMan's hips, measured at PlayerController's
+    // HolsterStowTime and DrawGrabTime (the two agree within 5 mm), so the pistol never jumps.
+    const string HolsterBone = "Hips";
+    static readonly Vector3 HolsterPosition = new(-0.089f, 0.098f, 0.145f), HolsterRotation = new(355.5f, 96.5f, 151f);
+
     static AnimatorController controller;
     static float scale;
+    static Avatar motusMan, mannequin;
+    // True when the shared mannequin avatar was just rebuilt, so the files copying it import again.
+    static bool mannequinRebuilt;
+    // How the Unarmed Arms layer makes a clip's arms empty-handed (see UnarmedArms).
+    enum Arms { Swing, Mirror, Hands }
+    static readonly Dictionary<(Motion motion, Arms arms), Motion> armsVersions = new();
+    // The relaxed idle, whose left hand gives every empty hand its fingers and wrist.
+    static AnimationClip relaxedHand;
+
+    // The Player Character asset, created with the defaults the first time it is needed.
+    public static PlayerCharacterSetup Setup
+    {
+        get
+        {
+            var setup = AssetDatabase.LoadAssetAtPath<PlayerCharacterSetup>(PlayerCharacterSetup.Path);
+            if (setup != null) return setup;
+            // MotusMan, the pack's own model: the clips play on him exactly as recorded, so his feet
+            // need no limits, and Unity's Foot IK puts them where the actor's were.
+            setup = ScriptableObject.CreateInstance<PlayerCharacterSetup>();
+            setup.model = AssetDatabase.LoadAssetAtPath<GameObject>(MotusManPath);
+            // MotusMan is 1.84 m tall; at 0.94 he stands 1.73 m, the height the level and camera were made for.
+            setup.modelScale = 0.94f;
+            setup.limitFeet = false;
+            setup.stateFootIK = true;
+            // HomebrewIK's foot placement bent his ankles 7 degrees further at a sprint on flat ground;
+            // it stays an option in the asset for levels with many steps and slopes.
+            setup.footIK = false;
+            setup.handgun = AssetDatabase.LoadAssetAtPath<GameObject>(PistolPath);
+            // The pack's weapon joint in the right hand: the 1911 sits in the grip with no offset.
+            setup.handSocketParent = "hand_r_wep";
+            setup.holsterSocketParent = HolsterBone;
+            setup.holsterPosition = HolsterPosition;
+            setup.holsterRotation = HolsterRotation;
+            AssetDatabase.CreateAsset(setup, PlayerCharacterSetup.Path);
+            return setup;
+        }
+    }
 
     [MenuItem("Dino Demo/Build Player Animator")]
     public static void Build()
     {
-        PrepareMixamo(ModelPath, loop: false, bakeRotation: false);
-        LimitFeet(ModelPath);
-        Avatar motusMan = PrepareMotusMan();
-        scale = HumanScale();
+        PlayerCharacterSetup setup = Setup;
+        if (setup.model == null) throw new InvalidOperationException("The Player Character asset has no model: " + PlayerCharacterSetup.Path);
+        string avatarPath = PrepareModel(setup);
+        if (setup.limitFeet) LimitFeet(avatarPath, setup.footUpLimit, setup.footTwistLimit);
+        motusMan = PrepareMotusMan();
+        mannequin = PrepareMannequin();
+        scale = HumanScale(setup);
         if (!AssetDatabase.IsValidFolder(Generated)) AssetDatabase.CreateFolder("Assets/Characters/Player", "Generated");
+        if (!AssetDatabase.IsValidFolder(ArmsFolder)) AssetDatabase.CreateFolder(Generated, "Unarmed Arms");
+        armsVersions.Clear();
 
-        // Holstered: the Mixamo set.
-        AnimationClip hIdle = Load(PrepareMixamo(Mixamo + UnarmedIdle, loop: true, bakeRotation: true));
-        AnimationClip hStart = Load(PrepareMixamo(Mixamo + UnarmedStart, loop: false, bakeRotation: true));
-        AnimationClip hWalk = Load(PrepareMixamo(Mixamo + UnarmedWalk, loop: true, bakeRotation: true));
-        AnimationClip hRun = Load(PrepareMixamo(Mixamo + UnarmedRun, loop: true, bakeRotation: true));
-        AnimationClip hCrouchIdle = Optional(UnarmedCrouchIdle, loop: true, bakeRotation: true);
-        AnimationClip hCrouchWalk = Optional(UnarmedCrouchWalk, loop: true, bakeRotation: true);
-        AnimationClip hQuickLeft = Optional(UnarmedTurnLeft, loop: false, bakeRotation: false);
-        AnimationClip hQuickRight = Optional(UnarmedTurnRight, loop: false, bakeRotation: false);
-        AnimationClip limp = Load(PrepareMixamo(Mixamo + "Injured Run.fbx", loop: true, bakeRotation: true));
-        AnimationClip hit = Load(PrepareMixamo(Mixamo + "Hit Reaction.fbx", loop: false, bakeRotation: false));
+        // Standing with the pistol down, or holstered. Turns keep their yaw out of the pose, so
+        // PlayerController turns the body and the feet step round with it.
+        AnimationClip idle = PackClip(Loops + "W1_Stand_Relaxed_Idle.fbx", loop: true);
+        AnimationClip fidget = PackClip(RootMotion + "W1_Stand_Relaxed_Fgt_v2.fbx");
+        AnimationClip walk = PackClip(Loops + "W1_Walk_F_Loop.fbx", loop: true);
+        AnimationClip walkBack = PackClip(Loops + "W1_Walk_B_Loop.fbx", loop: true);
+        AnimationClip walkLeft = PackClip(Loops + "W1_Walk_L_Loop.fbx", loop: true);
+        AnimationClip walkRight = PackClip(Loops + "W1_Walk_R_Loop.fbx", loop: true);
+        AnimationClip jog = PackClip(Loops + "W1_Jog_F_Loop.fbx", loop: true);
+        AnimationClip jogBack = PackClip(Loops + "W1_Jog_B_Loop.fbx", loop: true);
+        AnimationClip jogLeft = PackClip(Loops + "W1_Jog_L_Loop.fbx", loop: true);
+        AnimationClip jogRight = PackClip(Loops + "W1_Jog_R_Loop.fbx", loop: true);
+        AnimationClip run = PackClip(Loops + "W1_Run_F_Loop.fbx", loop: true);
+        AnimationClip runLeft = PackClip(Loops + "W1_Run_L_CIR_Loop.fbx", loop: true, turn: true);
+        AnimationClip runRight = PackClip(Loops + "W1_Run_R_CIR_Loop.fbx", loop: true, turn: true);
+        AnimationClip runSideLeft = PackClip(Loops + "W1_Run_L_Loop.fbx", loop: true);
+        AnimationClip runSideRight = PackClip(Loops + "W1_Run_R_Loop.fbx", loop: true);
+        AnimationClip runStop = PackClip(RootMotion + "W1_Run_F_to_Stand_Relaxed_RU.fbx");
+        AnimationClip turnLeft = PackClip(Loops + "W1_Stand_Rlx_Turn_In_Place_L_Loop.fbx", loop: true, turn: true);
+        AnimationClip turnRight = PackClip(Loops + "W1_Stand_Rlx_Turn_In_Place_R_Loop.fbx", loop: true, turn: true);
+        AnimationClip toAim = PackClip(RootMotion + "W1_Stand_Relaxed_To_Aim.fbx");
+        AnimationClip toRelaxed = PackClip(RootMotion + "W1_Stand_Aim_To_Relaxed.fbx");
 
-        // Pistol drawn: the MocapOnline set. Turns keep their yaw out of the pose, so PlayerController
-        // turns the body and the feet step round with it.
-        AnimationClip idle = PackClip(Loops + "W1_Stand_Relaxed_Idle.fbx", motusMan, loop: true);
-        AnimationClip fidget = PackClip(RootMotion + "W1_Stand_Relaxed_Fgt_v2.fbx", motusMan);
-        AnimationClip walk = PackClip(Loops + "W1_Walk_F_Loop.fbx", motusMan, loop: true);
-        AnimationClip jog = PackClip(Loops + "W1_Jog_F_Loop.fbx", motusMan, loop: true);
-        AnimationClip run = PackClip(Loops + "W1_Run_F_Loop.fbx", motusMan, loop: true);
-        AnimationClip runLeft = PackClip(Loops + "W1_Run_L_CIR_Loop.fbx", motusMan, loop: true, turn: true);
-        AnimationClip runRight = PackClip(Loops + "W1_Run_R_CIR_Loop.fbx", motusMan, loop: true, turn: true);
-        AnimationClip runStop = PackClip(RootMotion + "W1_Run_F_to_Stand_Relaxed_RU.fbx", motusMan);
-        AnimationClip turnLeft = PackClip(Loops + "W1_Stand_Rlx_Turn_In_Place_L_Loop.fbx", motusMan, loop: true, turn: true);
-        AnimationClip turnRight = PackClip(Loops + "W1_Stand_Rlx_Turn_In_Place_R_Loop.fbx", motusMan, loop: true, turn: true);
-        AnimationClip toAim = PackClip(RootMotion + "W1_Stand_Relaxed_To_Aim.fbx", motusMan);
-        AnimationClip toRelaxed = PackClip(RootMotion + "W1_Stand_Aim_To_Relaxed.fbx", motusMan);
+        AnimationClip aimIdle = PackClip(Loops + "W1_Stand_Aim_Idle.fbx", loop: true);
+        AnimationClip aimFidget = PackClip(RootMotion + "W1_Stand_Aim_Fgt_v1.fbx");
+        AnimationClip aimWalk = PackClip(Loops + "W1_Walk_Aim_F_Loop.fbx", loop: true);
+        AnimationClip aimWalkBack = PackClip(Loops + "W1_Walk_Aim_B_Loop.fbx", loop: true);
+        AnimationClip aimWalkLeft = PackClip(Loops + "W1_Walk_Aim_L_Loop.fbx", loop: true);
+        AnimationClip aimWalkRight = PackClip(Loops + "W1_Walk_Aim_R_Loop.fbx", loop: true);
+        AnimationClip aimWalkCurveLeft = PackClip(Loops + "W1_Walk_Aim_L_CIR_Loop.fbx", loop: true, turn: true);
+        AnimationClip aimWalkCurveRight = PackClip(Loops + "W1_Walk_Aim_R_CIR_Loop.fbx", loop: true, turn: true);
+        AnimationClip aimJog = PackClip(Loops + "W1_Jog_Aim_F_Loop.fbx", loop: true);
+        AnimationClip aimJogBack = PackClip(Loops + "W1_Jog_Aim_B_Loop.fbx", loop: true);
+        AnimationClip aimJogLeft = PackClip(Loops + "W1_Jog_Aim_L_Loop.fbx", loop: true);
+        AnimationClip aimJogRight = PackClip(Loops + "W1_Jog_Aim_R_Loop.fbx", loop: true);
+        AnimationClip aimJogCurveLeft = PackClip(Loops + "W1_Jog_Aim_L_CIR_Loop.fbx", loop: true, turn: true);
+        AnimationClip aimJogCurveRight = PackClip(Loops + "W1_Jog_Aim_R_CIR_Loop.fbx", loop: true, turn: true);
+        AnimationClip aimTurnLeft = PackClip(Loops + "W1_Stand_Aim_Turn_In_Place_L_Loop.fbx", loop: true, turn: true);
+        AnimationClip aimTurnRight = PackClip(Loops + "W1_Stand_Aim_Turn_In_Place_R_Loop.fbx", loop: true, turn: true);
+        AnimationClip aimStart = PackClip(RootMotion + "W1_Stand_Aim_To_Walk_Aim_F.fbx");
+        AnimationClip aimWalkStop = PackClip(RootMotion + "W1_Walk_Aim_F_To_Stand_Aim_RU.fbx");
+        AnimationClip aimJogStop = PackClip(RootMotion + "W1_Jog_Aim_F_to_Stand_Aim_RU.fbx");
+        AnimationClip aimToCrouchAim = PackClip(RootMotion + "W1_Stand_Aim_To_Crouch_Aim.fbx");
+        AnimationClip aimQuickLeft = PackClip(RootMotion + "W1_Stand_Aim_L_90.fbx", turn: true);
+        AnimationClip aimQuickRight = PackClip(RootMotion + "W1_Stand_Aim_R_90.fbx", turn: true);
 
-        AnimationClip aimIdle = PackClip(Loops + "W1_Stand_Aim_Idle.fbx", motusMan, loop: true);
-        AnimationClip aimWalk = PackClip(Loops + "W1_Walk_Aim_F_Loop.fbx", motusMan, loop: true);
-        AnimationClip aimWalkBack = PackClip(Loops + "W1_Walk_Aim_B_Loop.fbx", motusMan, loop: true);
-        AnimationClip aimWalkLeft = PackClip(Loops + "W1_Walk_Aim_L_Loop.fbx", motusMan, loop: true);
-        AnimationClip aimWalkRight = PackClip(Loops + "W1_Walk_Aim_R_Loop.fbx", motusMan, loop: true);
-        AnimationClip aimWalkCurveLeft = PackClip(Loops + "W1_Walk_Aim_L_CIR_Loop.fbx", motusMan, loop: true, turn: true);
-        AnimationClip aimWalkCurveRight = PackClip(Loops + "W1_Walk_Aim_R_CIR_Loop.fbx", motusMan, loop: true, turn: true);
-        AnimationClip aimJog = PackClip(Loops + "W1_Jog_Aim_F_Loop.fbx", motusMan, loop: true);
-        AnimationClip aimJogBack = PackClip(Loops + "W1_Jog_Aim_B_Loop.fbx", motusMan, loop: true);
-        AnimationClip aimJogLeft = PackClip(Loops + "W1_Jog_Aim_L_Loop.fbx", motusMan, loop: true);
-        AnimationClip aimJogRight = PackClip(Loops + "W1_Jog_Aim_R_Loop.fbx", motusMan, loop: true);
-        AnimationClip aimJogCurveLeft = PackClip(Loops + "W1_Jog_Aim_L_CIR_Loop.fbx", motusMan, loop: true, turn: true);
-        AnimationClip aimJogCurveRight = PackClip(Loops + "W1_Jog_Aim_R_CIR_Loop.fbx", motusMan, loop: true, turn: true);
-        AnimationClip aimTurnLeft = PackClip(Loops + "W1_Stand_Aim_Turn_In_Place_L_Loop.fbx", motusMan, loop: true, turn: true);
-        AnimationClip aimTurnRight = PackClip(Loops + "W1_Stand_Aim_Turn_In_Place_R_Loop.fbx", motusMan, loop: true, turn: true);
-        AnimationClip aimStart = PackClip(RootMotion + "W1_Stand_Aim_To_Walk_Aim_F.fbx", motusMan);
-        AnimationClip aimWalkStop = PackClip(RootMotion + "W1_Walk_Aim_F_To_Stand_Aim_RU.fbx", motusMan);
-        AnimationClip aimJogStop = PackClip(RootMotion + "W1_Jog_Aim_F_to_Stand_Aim_RU.fbx", motusMan);
-        AnimationClip aimToCrouchAim = PackClip(RootMotion + "W1_Stand_Aim_To_Crouch_Aim.fbx", motusMan);
-        AnimationClip aimQuickLeft = PackClip(RootMotion + "W1_Stand_Aim_L_90.fbx", motusMan, turn: true);
-        AnimationClip aimQuickRight = PackClip(RootMotion + "W1_Stand_Aim_R_90.fbx", motusMan, turn: true);
+        AnimationClip crouchIdle = PackClip(Loops + "W1_Crouch_Idle.fbx", loop: true);
+        AnimationClip crouchWalk = PackClip(Loops + "W1_CrouchWalk_F_Loop.fbx", loop: true);
+        AnimationClip crouchBack = PackClip(Loops + "W1_CrouchWalk_B_Loop.fbx", loop: true);
+        AnimationClip crouchLeft = PackClip(Loops + "W1_CrouchWalk_L_Loop.fbx", loop: true);
+        AnimationClip crouchRight = PackClip(Loops + "W1_CrouchWalk_R_Loop.fbx", loop: true);
+        AnimationClip crouchTurnLeft = PackClip(Loops + "W1_Crouch_Rlx_Turn_In_Place_L_Loop.fbx", loop: true, turn: true);
+        AnimationClip crouchTurnRight = PackClip(Loops + "W1_Crouch_Rlx_Turn_In_Place_R_Loop.fbx", loop: true, turn: true);
+        AnimationClip crouchToCrouchAim = PackClip(RootMotion + "W1_Crouch_To_Crouch_Aim.fbx");
+        AnimationClip crouchAimIdle = PackClip(Loops + "W1_Crouch_Aim_Idle.fbx", loop: true);
+        AnimationClip crouchAimWalk = PackClip(Loops + "W1_CrouchWalk_Aim_F_Loop.fbx", loop: true);
+        AnimationClip crouchAimBack = PackClip(Loops + "W1_CrouchWalk_Aim_B_Loop.fbx", loop: true);
+        AnimationClip crouchAimLeft = PackClip(Loops + "W1_CrouchWalk_Aim_L_Loop.fbx", loop: true);
+        AnimationClip crouchAimRight = PackClip(Loops + "W1_CrouchWalk_Aim_R_Loop.fbx", loop: true);
+        AnimationClip crouchAimTurnLeft = PackClip(Loops + "W1_Crouch_Aim_Turn_In_Place_L_Loop.fbx", loop: true, turn: true);
+        AnimationClip crouchAimTurnRight = PackClip(Loops + "W1_Crouch_Aim_Turn_In_Place_R_Loop.fbx", loop: true, turn: true);
+        AnimationClip crouchAimStart = PackClip(RootMotion + "W1_Crouch_Aim_To_CrouchWalk_Aim_F.fbx");
+        AnimationClip crouchAimStop = PackClip(RootMotion + "W1_CrouchWalk_Aim_F_To_Crouch_Aim_RU.fbx");
+        AnimationClip crouchAimToCrouch = PackClip(RootMotion + "W1_Crouch_Aim_To_Crouch.fbx");
+        AnimationClip crouchAimToAim = PackClip(RootMotion + "W1_Crouch_Aim_To_Stand_Aim.fbx");
+        AnimationClip crouchQuickLeft = PackClip(RootMotion + "W1_Crouch_Aim_L_90.fbx", turn: true);
+        AnimationClip crouchQuickRight = PackClip(RootMotion + "W1_Crouch_Aim_R_90.fbx", turn: true);
 
-        AnimationClip crouchIdle = PackClip(Loops + "W1_Crouch_Idle.fbx", motusMan, loop: true);
-        AnimationClip crouchWalk = PackClip(Loops + "W1_CrouchWalk_F_Loop.fbx", motusMan, loop: true);
-        AnimationClip crouchTurnLeft = PackClip(Loops + "W1_Crouch_Rlx_Turn_In_Place_L_Loop.fbx", motusMan, loop: true, turn: true);
-        AnimationClip crouchTurnRight = PackClip(Loops + "W1_Crouch_Rlx_Turn_In_Place_R_Loop.fbx", motusMan, loop: true, turn: true);
-        AnimationClip crouchToCrouchAim = PackClip(RootMotion + "W1_Crouch_To_Crouch_Aim.fbx", motusMan);
-        AnimationClip crouchAimIdle = PackClip(Loops + "W1_Crouch_Aim_Idle.fbx", motusMan, loop: true);
-        AnimationClip crouchAimWalk = PackClip(Loops + "W1_CrouchWalk_Aim_F_Loop.fbx", motusMan, loop: true);
-        AnimationClip crouchAimBack = PackClip(Loops + "W1_CrouchWalk_Aim_B_Loop.fbx", motusMan, loop: true);
-        AnimationClip crouchAimLeft = PackClip(Loops + "W1_CrouchWalk_Aim_L_Loop.fbx", motusMan, loop: true);
-        AnimationClip crouchAimRight = PackClip(Loops + "W1_CrouchWalk_Aim_R_Loop.fbx", motusMan, loop: true);
-        AnimationClip crouchAimTurnLeft = PackClip(Loops + "W1_Crouch_Aim_Turn_In_Place_L_Loop.fbx", motusMan, loop: true, turn: true);
-        AnimationClip crouchAimTurnRight = PackClip(Loops + "W1_Crouch_Aim_Turn_In_Place_R_Loop.fbx", motusMan, loop: true, turn: true);
-        AnimationClip crouchAimStart = PackClip(RootMotion + "W1_Crouch_Aim_To_CrouchWalk_Aim_F.fbx", motusMan);
-        AnimationClip crouchAimStop = PackClip(RootMotion + "W1_CrouchWalk_Aim_F_To_Crouch_Aim_RU.fbx", motusMan);
-        AnimationClip crouchAimToCrouch = PackClip(RootMotion + "W1_Crouch_Aim_To_Crouch.fbx", motusMan);
-        AnimationClip crouchAimToAim = PackClip(RootMotion + "W1_Crouch_Aim_To_Stand_Aim.fbx", motusMan);
-        AnimationClip crouchQuickLeft = PackClip(RootMotion + "W1_Crouch_Aim_L_90.fbx", motusMan, turn: true);
-        AnimationClip crouchQuickRight = PackClip(RootMotion + "W1_Crouch_Aim_R_90.fbx", motusMan, turn: true);
-
-        AnimationClip fire = PackClip(HolsterAndFire + "W1_Stand_Fire_Single.fbx", motusMan);
-        AnimationClip crouchFire = PackClip(HolsterAndFire + "W1_Crouch_Fire_Single.fbx", motusMan);
-        AnimationClip reload = PackClip(HolsterAndFire + "W1_Stand_Relaxed_Reload.fbx", motusMan);
-        AnimationClip aimReload = PackClip(HolsterAndFire + "W1_Stand_Aim_Reload.fbx", motusMan);
-        AnimationClip crouchReload = PackClip(HolsterAndFire + "W1_Crouch_Aim_Reload.fbx", motusMan);
-        AnimationClip draw = PackClip(HolsterAndFire + "W1_Aim_Equip_Get_From_MOB.fbx", motusMan);
-        AnimationClip crouchDraw = PackClip(HolsterAndFire + "W1_Crouch_Aim_Equip_Get_From_MOB.fbx", motusMan);
-        AnimationClip holster = PackClip(HolsterAndFire + "W1_Aim_Equip_Return_To_MOB.fbx", motusMan);
-        AnimationClip crouchHolster = PackClip(HolsterAndFire + "W1_Crouch_Aim_Equip_Return_To_MOB.fbx", motusMan);
+        var upper = new UpperBodyClips
+        {
+            fire = PackClip(HolsterAndFire + "W1_Stand_Fire_Single.fbx"),
+            crouchFire = PackClip(HolsterAndFire + "W1_Crouch_Fire_Single.fbx"),
+            rapidFire = PackClip(HolsterAndFire + "W1_Stand_Fire_Continuous.fbx", loop: true),
+            crouchRapidFire = PackClip(HolsterAndFire + "W1_Crouch_Fire_Continuous.fbx", loop: true),
+            reload = PackClip(HolsterAndFire + "W1_Stand_Relaxed_Reload.fbx"),
+            aimReload = PackClip(HolsterAndFire + "W1_Stand_Aim_Reload.fbx"),
+            crouchReload = PackClip(HolsterAndFire + "W1_Crouch_Aim_Reload.fbx"),
+            draw = PackClip(HolsterAndFire + "W1_Aim_Equip_Get_From_MOB.fbx"),
+            crouchDraw = PackClip(HolsterAndFire + "W1_Crouch_Aim_Equip_Get_From_MOB.fbx"),
+            holster = PackClip(HolsterAndFire + "W1_Aim_Equip_Return_To_MOB.fbx"),
+            crouchHolster = PackClip(HolsterAndFire + "W1_Crouch_Aim_Equip_Return_To_MOB.fbx"),
+            toSecond = PackClip(HolsterAndFire + "W1_Stand_Aim_Swap_To_W2.fbx"),
+            crouchToSecond = PackClip(HolsterAndFire + "W1_Crouch_Aim_Swap_To_W2.fbx"),
+            toPistol = PackClip(HolsterAndFire + "W2_Stand_Aim_Swap_To_W1.fbx"),
+            crouchToPistol = PackClip(HolsterAndFire + "W2_Crouch_Aim_Swap_To_W1.fbx"),
+        };
 
         string[] deathFiles = { "W1_Stand_Relaxed_Death_F", "W1_Stand_Relaxed_Death_B", "W1_Stand_Relaxed_Death_L", "W1_Stand_Relaxed_Death_R" };
         var deaths = new AnimationClip[4];
-        for (int i = 0; i < 4; i++) deaths[i] = PackClip(RootMotion + deathFiles[i] + ".fbx", motusMan);
+        for (int i = 0; i < 4; i++) deaths[i] = PackClip(RootMotion + deathFiles[i] + ".fbx");
+        AnimationClip hit = PackTake(RootMotion + "W1_Stand_Relaxed_Death_B.fbx", "W1_Stand_Relaxed_Hit", HitFrames);
 
         // Split jumps: the start, a loop in the air, the landing. Only in-place versions exist.
         string[] jumpNames = { "W1_Stand_Relaxed_Jump", "W1_Run_F_Jump_RU", "W1_Stand_Aim_Jump", "W1_Walk_Aim_F_Jump_RU", "W1_Jog_Aim_L_Jump_RU", "W1_Jog_Aim_R_Jump_RU" };
         var jumps = new AnimationClip[jumpNames.Length, 3];
         for (int i = 0; i < jumpNames.Length; i++)
         {
-            jumps[i, 0] = PackClip(SplitJumps + jumpNames[i] + "_Start_IPC.fbx", motusMan);
-            jumps[i, 1] = PackClip(SplitJumps + jumpNames[i] + "_Air_IPC.fbx", motusMan, loop: true);
-            jumps[i, 2] = PackClip(SplitJumps + jumpNames[i] + "_End_IPC.fbx", motusMan);
+            jumps[i, 0] = PackClip(SplitJumps + jumpNames[i] + "_Start_IPC.fbx");
+            jumps[i, 1] = PackClip(SplitJumps + jumpNames[i] + "_Air_IPC.fbx", loop: true);
+            jumps[i, 2] = PackClip(SplitJumps + jumpNames[i] + "_End_IPC.fbx");
         }
 
         // Rebuild in place: deleting the asset would give it a new GUID and leave the scene's Animator empty.
@@ -179,44 +229,44 @@ public static class PlayerAnimatorBuilder
         else Clear(controller);
         AddParameters();
 
-        // Speeds on Eve's body, in m/s.
+        // Speeds on her body, in m/s.
         float walkSpeed = Speed(walk), jogSpeed = Speed(jog);
         float aimWalkSpeed = Speed(aimWalk), aimJogSpeed = Speed(aimJog);
-        float holsteredWalk = Speed(hWalk);
-        float hurtWalk = walkSpeed * LimpFactor, hurtRun = SprintSpeed * LimpFactor;
 
         AnimatorStateMachine machine = controller.layers[0].stateMachine;
         var stances = new Dictionary<int, StanceStates>();
 
-        // Holstered: Idle, a first step, then walk into run. The run sits at its own pace; a faster
-        // sprint (PlayerController.unarmedSprintSpeed) plays the whole state faster through MoveScale,
-        // so the feet keep up whatever the sprint is tuned to. With no unarmed turn clips, turning on
-        // the spot borrows the pistol pack's loops and the Unarmed Arms layer keeps her arms relaxed.
-        var h = stances[Holstered] = new StanceStates(machine, "Holstered");
-        h.idle = h.Add("Idle", hIdle);
-        h.turn = h.Add("Turn", TurnTree("Holstered Turn", turnLeft, turnRight, hIdle));
-        h.move = h.Add("Move", GaitTree("Holstered Move", hIdle,
-            new Gait(hWalk, holsteredWalk, holsteredWalk * BriskWalk),
-            new Gait(hRun, 0f, Speed(hRun), cycleOffset: 0.92f)));
-        h.move.speedParameterActive = true;
-        h.move.speedParameter = "MoveScale";
-        // The first step skips the clip's still weight shift and steps out a little quicker.
-        AnimatorState hFirstStep = h.Add("First Step", hStart, step: true);
-        hFirstStep.speed = 1.15f;
-        (AnimatorState left, AnimatorState right) hQuick = hQuickLeft != null && hQuickRight != null
-            ? (h.Add("Quick Turn Left", hQuickLeft, quickTurn: true), h.Add("Quick Turn Right", hQuickRight, quickTurn: true))
-            : (null, null);
+        // Standing free: walk, jog and run, the run leaning into curves. Where she moves off her
+        // facing (sliding along a wall, pushed back) she steps back or aside instead.
+        BlendTree freeMove = DirectionalTree("Free Move", idle,
+            (GaitTree("Free Forward", null,
+                new Gait(walk, walkSpeed, walkSpeed * BriskWalk),
+                new Gait(jog, 0f, jogSpeed),
+                new Gait(run, 0f, SprintSpeed, left: runLeft, right: runRight)), new Vector2(0f, walkSpeed)),
+            (walkBack, new Vector2(0f, -Speed(walkBack))),
+            (walkLeft, new Vector2(-Speed(walkLeft), 0f)),
+            (walkRight, new Vector2(Speed(walkRight), 0f)),
+            (jogBack, new Vector2(0f, -Speed(jogBack))),
+            (jogLeft, new Vector2(-Speed(jogLeft), 0f)),
+            (jogRight, new Vector2(Speed(jogRight), 0f)),
+            (runSideLeft, new Vector2(-Speed(runSideLeft), 0f)),
+            (runSideRight, new Vector2(Speed(runSideRight), 0f)));
+        BlendTree freeTurn = TurnTree("Free Turn", turnLeft, turnRight, idle);
 
-        // Relaxed: walk, jog and run; the run leans into curves; a sprint stops with a last stride.
-        var r = stances[Relaxed] = new StanceStates(machine, "Relaxed");
-        r.idle = r.Add("Idle", idle);
-        r.turn = r.Add("Turn", TurnTree("Relaxed Turn", turnLeft, turnRight, idle));
-        r.move = r.Add("Move", GaitTree("Relaxed Move", idle,
-            new Gait(walk, walkSpeed, walkSpeed * BriskWalk),
-            new Gait(jog, 0f, jogSpeed),
-            new Gait(run, 0f, SprintSpeed, left: runLeft, right: runRight)));
-        AnimatorState rStop = r.Add("Stop", runStop, step: true);
-        AnimatorState rFidget = r.Add("Look Around", fidget);
+        // Relaxed (pistol down or holstered) and badly hurt move alike; hurt, PlayerController holds
+        // her to a jog. A sprint stops with a last stride; standing still a while, she looks around.
+        foreach ((int id, string name) in new[] { (Relaxed, "Relaxed"), (Hurt, "Hurt") })
+        {
+            var s = stances[id] = new StanceStates(machine, name);
+            s.idle = s.Add("Idle", idle);
+            s.turn = s.Add("Turn", freeTurn);
+            s.move = s.Add("Move", freeMove);
+            s.stop = s.Add("Stop", runStop, step: true);
+            s.fidget = s.Add("Look Around", fidget);
+        }
+        // A sprint tuned faster than the run clip plays the whole state faster through MoveScale.
+        stances[Relaxed].move.speedParameterActive = true;
+        stances[Relaxed].move.speedParameter = "MoveScale";
 
         // Aiming: strafes in every direction; walking and jogging forward lean into curves.
         var a = stances[Aim] = new StanceStates(machine, "Aim");
@@ -231,25 +281,22 @@ public static class PlayerAnimatorBuilder
             (aimJogBack, new Vector2(0f, -Speed(aimJogBack))),
             (aimJogLeft, new Vector2(-Speed(aimJogLeft), 0f)),
             (aimJogRight, new Vector2(Speed(aimJogRight), 0f))));
+        a.fidget = a.Add("Look Around", aimFidget);
         AnimatorState aStart = a.Add("First Step", aimStart, step: true);
         (AnimatorState left, AnimatorState right) aQuick = (a.Add("Quick Turn Left", aimQuickLeft, quickTurn: true), a.Add("Quick Turn Right", aimQuickRight, quickTurn: true));
         AnimatorState aWalkStop = a.Add("Walk Stop", aimWalkStop, step: true);
         AnimatorState aJogStop = a.Add("Jog Stop", aimJogStop, step: true);
 
-        // Crouched: creeps forward and turns to face the way she goes.
+        // Crouched, pistol down or holstered: creeps forward and turns to face the way she goes, and
+        // steps back or aside where she moves off her facing.
         var c = stances[Crouch] = new StanceStates(machine, "Crouch");
         c.idle = c.Add("Idle", crouchIdle);
         c.turn = c.Add("Turn", TurnTree("Crouch Turn", crouchTurnLeft, crouchTurnRight, crouchIdle));
-        c.move = c.Add("Move", GaitTree("Crouch Move", crouchIdle, new Gait(crouchWalk, Speed(crouchWalk), Speed(crouchWalk))));
-
-        // Crouched with the pistol holstered: the crouch never draws it. Without unarmed crouch clips,
-        // the pistol pack's crouch stands in and the Unarmed Arms layer relaxes the arms.
-        var ch = stances[CrouchHolstered] = new StanceStates(machine, "Crouch Holstered");
-        AnimationClip chIdle = hCrouchIdle != null ? hCrouchIdle : crouchIdle;
-        AnimationClip chWalk = hCrouchWalk != null ? hCrouchWalk : crouchWalk;
-        ch.idle = ch.Add("Idle", chIdle);
-        ch.turn = ch.Add("Turn", TurnTree("Crouch Holstered Turn", crouchTurnLeft, crouchTurnRight, chIdle));
-        ch.move = ch.Add("Move", GaitTree("Crouch Holstered Move", chIdle, new Gait(chWalk, Speed(chWalk), Speed(chWalk))));
+        c.move = c.Add("Move", DirectionalTree("Crouch Move", crouchIdle,
+            (crouchWalk, new Vector2(0f, Speed(crouchWalk))),
+            (crouchBack, new Vector2(0f, -Speed(crouchBack))),
+            (crouchLeft, new Vector2(-Speed(crouchLeft), 0f)),
+            (crouchRight, new Vector2(Speed(crouchRight), 0f))));
 
         // Crouched and aiming: creeps in every direction.
         var ca = stances[CrouchAim] = new StanceStates(machine, "Crouch Aim");
@@ -263,17 +310,6 @@ public static class PlayerAnimatorBuilder
         AnimatorState caStart = ca.Add("First Step", crouchAimStart, step: true);
         (AnimatorState left, AnimatorState right) caQuick = (ca.Add("Quick Turn Left", crouchQuickLeft, quickTurn: true), ca.Add("Quick Turn Right", crouchQuickRight, quickTurn: true));
         AnimatorState caStop = ca.Add("Stop", crouchAimStop, step: true);
-
-        // Badly hurt: a slow walk, and a limp when she hurries.
-        var hu = stances[Hurt] = new StanceStates(machine, "Hurt");
-        hu.idle = hu.Add("Idle", idle);
-        hu.turn = hu.Add("Turn", TurnTree("Hurt Turn", turnLeft, turnRight, idle));
-        hu.move = hu.Add("Move", GaitTree("Hurt Move", idle, new Gait(walk, hurtWalk, hurtWalk), new Gait(limp, 0f, hurtRun)));
-        var hh = stances[HurtHolstered] = new StanceStates(machine, "Hurt Holstered");
-        hh.idle = hh.Add("Idle", hIdle);
-        hh.turn = hh.Add("Turn", TurnTree("Hurt Holstered Turn", turnLeft, turnRight, hIdle));
-        hh.move = hh.Add("Move", GaitTree("Hurt Holstered Move", hIdle,
-            new Gait(hWalk, hurtWalk, hurtWalk), new Gait(limp, 0f, hurtRun)));
 
         // Raising or lowering the pistol from a stand, and crouching or standing up with it raised.
         AnimatorStateMachine changes = machine.AddStateMachine("Stance Changes");
@@ -301,18 +337,15 @@ public static class PlayerAnimatorBuilder
         string[] deathNames = { "Fall Forward", "Fall Backward", "Fall Left", "Fall Right" };
         for (int i = 0; i < 4; i++) deathStates[i] = AddState(reactions, "Dead " + deathNames[i], deaths[i]);
 
-        machine.defaultState = r.idle;
-        foreach (StanceStates s in stances.Values) s.idle.iKOnFeet = s.move.iKOnFeet = s.turn.iKOnFeet = true;
-        // The crouch walk on the mannequin's skeleton bends the left ankle up to 103 degrees with Foot IK
-        // and 85 without: its IK goals don't fit Eve's feet, so it plays without.
-        c.move.iKOnFeet = false;
-        if (hCrouchWalk == null) ch.move.iKOnFeet = false;
-        foreach (AnimatorState quick in new[] { aQuick.left, aQuick.right, caQuick.left, caQuick.right }) quick.iKOnFeet = true;
-        hFirstStep.iKOnFeet = true;
+        machine.defaultState = stances[Relaxed].idle;
+        // Unity's Foot IK puts the feet where the clip's flat-footed actor put his; on heels that bends
+        // her ankles, so it is a choice in the Player Character asset.
+        foreach (StanceStates s in stances.Values)
+            foreach (AnimatorState state in s.all) state.iKOnFeet = setup.stateFootIK;
 
         // ---- Base layer transitions ----
         // Raising or lowering the pistol from a stand plays the matching clip; anything else crossfades.
-        Go(r.idle, raise, 0.15f, Is("Stance", Aim), Off("Moving"));
+        Go(stances[Relaxed].idle, raise, 0.15f, Is("Stance", Aim), Off("Moving"));
         Go(a.idle, lower, 0.15f, Is("Stance", Relaxed), Off("Moving"));
         Go(a.idle, aimDown, 0.15f, Is("Stance", CrouchAim));
         Go(ca.idle, aimUp, 0.15f, Is("Stance", Aim));
@@ -336,34 +369,33 @@ public static class PlayerAnimatorBuilder
             Go(s.turn, s.move, 0.25f, On("Moving"), Off("TurnInPlace"));
             Go(s.turn, s.idle, 0.25f, Off("TurnInPlace"));
             Go(s.move, s.turn, 0.25f, On("TurnInPlace"), Below("Travel", 0.5f));
+
+            // Standing still a while, she looks around; setting off or turning cuts the look short.
+            if (s.fidget != null)
+            {
+                Go(s.idle, s.fidget, 0.4f, Above("IdleTime", 8f)).interruptionSource = TransitionInterruptionSource.Source;
+                Go(s.fidget, s.turn, 0.3f, On("TurnInPlace"));
+                Go(s.fidget, s.move, 0.3f, On("Moving"));
+                ExitTo(s.fidget, s.idle, 0.95f);
+            }
         }
 
-        // Holstered: the first step, unless she sprints off.
-        Go(h.idle, h.move, 0.2f, On("Moving"), On("Sprint"));
-        Go(h.idle, hFirstStep, 0.1f, On("Moving")).offset = StepStart(hStart, hWalk);
-        Go(hFirstStep, h.idle, 0.25f, Off("Moving"));
-        Go(hFirstStep, h.move, 0.25f, On("Sprint"));
-        StepInto(hFirstStep, h.move, hStart, hWalk);
-        Stop(h);
-
-        // Relaxed: a sprint ends in a last stride; standing still a while, she looks around.
-        Go(r.idle, r.move, 0.2f, On("Moving"));
-        // Stop is set the frame she lets go, with StopSpeed the pace she let go at.
-        Go(r.move, rStop, 0.2f, On("Stop"), Above("StopSpeed", SprintSpeed * 0.7f));
-        Go(rStop, r.turn, 0.25f, On("TurnInPlace"));
-        Go(rStop, r.move, 0.2f, On("Moving"));
-        ExitTo(rStop, r.idle, 0.85f);
-        Stop(r);
-        // Setting off or turning just as she starts to look around cuts the look short.
-        Go(r.idle, rFidget, 0.4f, Above("IdleTime", 8f)).interruptionSource = TransitionInterruptionSource.Source;
-        Go(rFidget, r.turn, 0.3f, On("TurnInPlace"));
-        Go(rFidget, r.move, 0.3f, On("Moving"));
-        ExitTo(rFidget, r.idle, 0.95f);
+        // Relaxed and hurt: a sprint ends in a last stride. Stop is set the frame she lets go, with
+        // StopSpeed the pace she let go at.
+        foreach (int id in new[] { Relaxed, Hurt })
+        {
+            StanceStates s = stances[id];
+            Go(s.idle, s.move, 0.2f, On("Moving"));
+            Go(s.move, s.stop, 0.2f, On("Stop"), Above("StopSpeed", SprintSpeed * 0.7f));
+            Go(s.stop, s.turn, 0.25f, On("TurnInPlace"));
+            Go(s.stop, s.move, 0.2f, On("Moving"));
+            ExitTo(s.stop, s.idle, 0.85f);
+            Stop(s);
+        }
 
         // Aiming with the camera swung far round, standing, she pivots a quarter turn in one go.
         QuickTurns(a, aQuick);
         QuickTurns(ca, caQuick);
-        if (hQuick.left != null) QuickTurns(h, hQuick, setOffEarly: false);
 
         // Aiming: steps off forward, and stops with a last stride from a walk or a jog.
         Go(a.idle, aStart, 0.15f, On("Moving"), On("Forward"), Off("Sprint"));
@@ -382,11 +414,9 @@ public static class PlayerAnimatorBuilder
         }
         Stop(a);
 
-        // Crouched, with the pistol out or holstered.
+        // Crouched, with the pistol down or raised.
         Go(c.idle, c.move, 0.2f, On("Moving"));
         Stop(c);
-        Go(ch.idle, ch.move, 0.2f, On("Moving"));
-        Stop(ch);
         Go(ca.idle, caStart, 0.15f, On("Moving"), On("Forward"));
         Go(ca.idle, ca.move, 0.2f, On("Moving"));
         Go(caStart, ca.idle, 0.25f, Off("Moving"));
@@ -396,11 +426,6 @@ public static class PlayerAnimatorBuilder
         Go(caStop, ca.move, 0.2f, On("Moving"));
         ExitTo(caStop, ca.idle, 0.85f);
         Stop(ca);
-
-        Go(hu.idle, hu.move, 0.2f, On("Moving"));
-        Stop(hu);
-        Go(hh.idle, hh.move, 0.2f, On("Moving"));
-        Stop(hh);
 
         // Death first, so a pending hit or jump can't stand her back up.
         for (int i = 0; i < 4; i++)
@@ -415,7 +440,7 @@ public static class PlayerAnimatorBuilder
         flinch.duration = 0.05f;
         flinch.canTransitionToSelf = true;
         flinch.AddCondition(AnimatorConditionMode.If, 0f, "Hit");
-        ExitBy(hitState, stances, 0.85f);
+        ExitBy(hitState, stances, 0.8f);
 
         // Jumps: the start, the air, the landing, then back to whatever she was doing.
         for (int i = 0; i < jumpNames.Length; i++)
@@ -430,35 +455,47 @@ public static class PlayerAnimatorBuilder
             ExitBy(jumpStates[i, 2], stances, 0.55f);
         }
 
-        BuildUpperBody(fire, crouchFire, reload, aimReload, crouchReload, draw, crouchDraw, holster, crouchHolster);
+        BuildUpperBody(upper);
 
         // Aim offsets: single poses, turned into differences from looking straight ahead.
-        AnimationClip lookCenter = PackClip(AimOffsets + "W1_Stand_Relaxed_Look_Center.fbx", motusMan);
-        Motion standAim = AimOffsetTree("Stand Aim Offset", "Stand_Aim", motusMan);
-        Motion crouchAim = AimOffsetTree("Crouch Aim Offset", "Crouch_Aim", motusMan);
+        AnimationClip lookCenter = PackClip(AimOffsets + "W1_Stand_Relaxed_Look_Center.fbx");
+        Motion standAim = AimOffsetTree("Stand Aim Offset", "Stand_Aim");
+        Motion crouchAim = AimOffsetTree("Crouch Aim Offset", "Crouch_Aim");
         AddLayer("Aim Offset", Tree1D("Aim Offset", "CrouchBlend", (standAim, 0f, 1f, 0f), (crouchAim, 1f, 1f, 0f)), additive: true);
         AddLayer("Look Offset", Tree1D("Look Offset", "AimPitch",
-            (Additive("Look Down", PackClip(AimOffsets + "W1_Stand_Relaxed_Look_D90.fbx", motusMan), lookCenter), -1f, 1f, 0f),
+            (Additive("Look Down", PackClip(AimOffsets + "W1_Stand_Relaxed_Look_D90.fbx"), lookCenter), -1f, 1f, 0f),
             (Additive("Look Center", lookCenter, lookCenter), 0f, 1f, 0f),
-            (Additive("Look Up", PackClip(AimOffsets + "W1_Stand_Relaxed_Look_U90.fbx", motusMan), lookCenter), 1f, 1f, 0f)), additive: true);
+            (Additive("Look Up", PackClip(AimOffsets + "W1_Stand_Relaxed_Look_U90.fbx"), lookCenter), 1f, 1f, 0f)), additive: true);
 
-        // Relaxed arms over pistol-pack stand-ins while the pistol is holstered; PlayerController
-        // fades the layer in for those states only.
-        AddLayer("Unarmed Arms", hIdle, additive: false, ArmsMask());
-
-        LocomotionProfile.UnarmedClips unarmed = new()
+        // Holstered, she stands, crouches and jumps on the same states with loose arms; a flinch
+        // throws both arms like the free one; falling dead, only her right hand lets go.
+        relaxedHand = idle;
+        var unarmed = new List<(AnimatorState state, Arms arms)>();
+        foreach (int id in new[] { Relaxed, Hurt, Crouch })
+            foreach (AnimatorState state in stances[id].all) unarmed.Add((state, Arms.Swing));
+        foreach (AnimatorState jump in jumpStates) unarmed.Add((jump, Arms.Swing));
+        unarmed.Add((hitState, Arms.Mirror));
+        foreach (AnimatorState death in deathStates) unarmed.Add((death, Arms.Hands));
+        AddUnarmedArms(unarmed);
+        // Arm clips no state uses any more go.
+        foreach (string guid in AssetDatabase.FindAssets("t:AnimationClip", new[] { ArmsFolder }))
         {
-            run = Speed(hRun),
-            crouchWalk = Speed(chWalk),
-            crouchStandIn = hCrouchIdle == null || hCrouchWalk == null,
-            quickTurns = hQuick.left != null,
-        };
-        WriteProfile(unarmed, walkSpeed, jogSpeed, aimWalkSpeed, aimJogSpeed, Speed(crouchWalk), Speed(crouchAimWalk), holsteredWalk, hurtWalk, hurtRun,
+            string path = AssetDatabase.GUIDToAssetPath(guid);
+            if (!armsVersions.ContainsValue(AssetDatabase.LoadAssetAtPath<AnimationClip>(path))) AssetDatabase.DeleteAsset(path);
+        }
+
+        WriteProfile(walkSpeed, jogSpeed, aimWalkSpeed, aimJogSpeed, Speed(crouchWalk), Speed(crouchAimWalk), upper.rapidFire.length / RapidShotsPerLoop,
             (run, runLeft, runRight), (aimWalk, aimWalkCurveLeft, aimWalkCurveRight), (aimJog, aimJogCurveLeft, aimJogCurveRight), turnLeft, turnRight);
+
+        // HomebrewIK places the feet in OnAnimatorIK, which only runs on a layer with its IK pass on.
+        AnimatorControllerLayer[] layers = controller.layers;
+        layers[0].iKPass = setup.footIK;
+        controller.layers = layers;
 
         EditorUtility.SetDirty(controller);
         AssetDatabase.SaveAssets();
         controller = null;
+        armsVersions.Clear();
     }
 
     // How long a jump's wind-up lasts before she leaves the ground. PlayerController waits as long.
@@ -469,7 +506,7 @@ public static class PlayerAnimatorBuilder
     class StanceStates
     {
         readonly AnimatorStateMachine machine;
-        public AnimatorState idle, turn, move;
+        public AnimatorState idle, turn, move, stop, fidget;
         public readonly List<AnimatorState> all = new();
 
         public StanceStates(AnimatorStateMachine root, string name) => machine = root.AddStateMachine(name);
@@ -558,18 +595,26 @@ public static class PlayerAnimatorBuilder
 
     // ---- Upper body and offsets ----
 
-    static void BuildUpperBody(AnimationClip fire, AnimationClip crouchFire, AnimationClip reload, AnimationClip aimReload, AnimationClip crouchReload,
-        AnimationClip draw, AnimationClip crouchDraw, AnimationClip holster, AnimationClip crouchHolster)
+    class UpperBodyClips
+    {
+        public AnimationClip fire, crouchFire, rapidFire, crouchRapidFire, reload, aimReload, crouchReload;
+        public AnimationClip draw, crouchDraw, holster, crouchHolster, toSecond, crouchToSecond, toPistol, crouchToPistol;
+    }
+
+    static void BuildUpperBody(UpperBodyClips clips)
     {
         AnimatorStateMachine upper = AddLayer("Upper Body", null, additive: false);
         AnimatorState empty = upper.AddState("Empty");
         upper.defaultState = empty;
 
-        Motion standReload = Tree1D("Stand Reload", "AimBlend", (reload, 0f, reload.length / ReloadTime, 0f), (aimReload, 1f, aimReload.length / ReloadTime, 0f));
-        AnimatorState fireState = AddState(upper, "Fire", Tree1D("Fire", "CrouchBlend", (fire, 0f, 1f, 0f), (crouchFire, 1f, 1f, 0f)));
-        AnimatorState reloadState = AddState(upper, "Reload", Tree1D("Reload", "CrouchBlend", (standReload, 0f, 1f, 0f), (crouchReload, 1f, crouchReload.length / ReloadTime, 0f)));
-        AnimatorState drawState = AddState(upper, "Draw", Tree1D("Draw", "CrouchBlend", (draw, 0f, 1f, 0f), (crouchDraw, 1f, crouchDraw.length / draw.length, 0f)));
-        AnimatorState holsterState = AddState(upper, "Holster", Tree1D("Holster", "CrouchBlend", (holster, 0f, 1f, 0f), (crouchHolster, 1f, crouchHolster.length / holster.length, 0f)));
+        Motion standReload = Tree1D("Stand Reload", "AimBlend", (clips.reload, 0f, clips.reload.length / ReloadTime, 0f), (clips.aimReload, 1f, clips.aimReload.length / ReloadTime, 0f));
+        AnimatorState fireState = AddState(upper, "Fire", Tree1D("Fire", "CrouchBlend", (clips.fire, 0f, 1f, 0f), (clips.crouchFire, 1f, 1f, 0f)));
+        AnimatorState reloadState = AddState(upper, "Reload", Tree1D("Reload", "CrouchBlend", (standReload, 0f, 1f, 0f), (clips.crouchReload, 1f, clips.crouchReload.length / ReloadTime, 0f)));
+        AnimatorState drawState = AddState(upper, "Draw", Tree1D("Draw", "CrouchBlend", (clips.draw, 0f, 1f, 0f), (clips.crouchDraw, 1f, clips.crouchDraw.length / clips.draw.length, 0f)));
+        AnimatorState holsterState = AddState(upper, "Holster", Tree1D("Holster", "CrouchBlend", (clips.holster, 0f, 1f, 0f), (clips.crouchHolster, 1f, clips.crouchHolster.length / clips.holster.length, 0f)));
+        // Swapping to a second weapon and back. Nothing calls them yet: the demo has only the pistol.
+        AnimatorState toSecond = AddState(upper, "Swap To Second Weapon", Tree1D("Swap To Second Weapon", "CrouchBlend", (clips.toSecond, 0f, 1f, 0f), (clips.crouchToSecond, 1f, clips.crouchToSecond.length / clips.toSecond.length, 0f)));
+        AnimatorState toPistol = AddState(upper, "Swap To Pistol", Tree1D("Swap To Pistol", "CrouchBlend", (clips.toPistol, 0f, 1f, 0f), (clips.crouchToPistol, 1f, clips.crouchToPistol.length / clips.toPistol.length, 0f)));
 
         foreach ((AnimatorState state, string trigger, float exit) in new[] { (fireState, "Fire", 0.55f), (reloadState, "Reload", 0.92f), (drawState, "Draw", 0.9f), (holsterState, "Holster", 0.95f) })
         {
@@ -580,6 +625,27 @@ public static class PlayerAnimatorBuilder
             into.AddCondition(AnimatorConditionMode.IfNot, 0f, "IsDead");
             ExitTo(state, empty, exit);
         }
+        foreach ((AnimatorState state, int weapon) in new[] { (toSecond, 2), (toPistol, 1) })
+        {
+            AnimatorStateTransition into = upper.AddAnyStateTransition(state);
+            into.duration = 0.15f;
+            into.canTransitionToSelf = false;
+            into.AddCondition(AnimatorConditionMode.If, 0f, "Swap");
+            into.AddCondition(AnimatorConditionMode.Equals, weapon, "Weapon");
+            into.AddCondition(AnimatorConditionMode.IfNot, 0f, "IsDead");
+            ExitTo(state, empty, 0.95f);
+        }
+
+        // Holding the trigger: the continuous-fire loop, whose four recoils a cycle PlayerController
+        // fires in step with. The first recoil comes two frames in, just after the shot.
+        AnimatorState rapidState = AddState(upper, "Rapid Fire", Tree1D("Rapid Fire", "CrouchBlend", (clips.rapidFire, 0f, 1f, 0f), (clips.crouchRapidFire, 1f, clips.rapidFire.length / clips.crouchRapidFire.length, 0f)));
+        AnimatorStateTransition rapid = upper.AddAnyStateTransition(rapidState);
+        rapid.duration = 0.05f;
+        rapid.canTransitionToSelf = false;
+        rapid.AddCondition(AnimatorConditionMode.If, 0f, "RapidFire");
+        rapid.AddCondition(AnimatorConditionMode.IfNot, 0f, "IsDead");
+        Go(rapidState, empty, 0.2f, Off("RapidFire"));
+
         AnimatorStateTransition stop = upper.AddAnyStateTransition(empty);
         stop.duration = 0.2f;
         stop.canTransitionToSelf = false;
@@ -587,7 +653,7 @@ public static class PlayerAnimatorBuilder
     }
 
     // Stand or crouch aim offsets as a 2D blend on where the camera looks against where she faces.
-    static Motion AimOffsetTree(string name, string prefix, Avatar motusMan)
+    static Motion AimOffsetTree(string name, string prefix)
     {
         var tree = new BlendTree
         {
@@ -597,11 +663,11 @@ public static class PlayerAnimatorBuilder
             blendParameterY = "AimPitch",
             useAutomaticThresholds = false,
         };
-        AnimationClip center = PackClip(AimOffsets + "W1_" + prefix + "_Point_Center.fbx", motusMan);
+        AnimationClip center = PackClip(AimOffsets + "W1_" + prefix + "_Point_Center.fbx");
         (string pose, Vector2 at)[] poses = { ("Center", Vector2.zero), ("U90", Vector2.up), ("D90", Vector2.down), ("L90", Vector2.left), ("R90", Vector2.right) };
         foreach ((string pose, Vector2 at) in poses)
         {
-            AnimationClip clip = PackClip(AimOffsets + "W1_" + prefix + "_Point_" + pose + ".fbx", motusMan);
+            AnimationClip clip = PackClip(AimOffsets + "W1_" + prefix + "_Point_" + pose + ".fbx");
             tree.AddChild(Additive(prefix.Replace("_", " ") + " " + pose, clip, center), at);
         }
         AssetDatabase.AddObjectToAsset(tree, controller);
@@ -694,6 +760,186 @@ public static class PlayerAnimatorBuilder
         return mask;
     }
 
+    // ---- Empty hands ----
+
+    // A layer synced to the base layer that plays, for every state she can be in with the pistol
+    // holstered, the same motion with empty-handed arms. PlayerController fades it in while holstered.
+    static void AddUnarmedArms(IEnumerable<(AnimatorState state, Arms arms)> states)
+    {
+        var machine = new AnimatorStateMachine { name = "Unarmed Arms", hideFlags = HideFlags.HideInHierarchy };
+        AssetDatabase.AddObjectToAsset(machine, controller);
+        var layer = new AnimatorControllerLayer
+        {
+            name = "Unarmed Arms",
+            stateMachine = machine,
+            syncedLayerIndex = 0,
+            syncedLayerAffectsTiming = false,
+            blendingMode = AnimatorLayerBlendingMode.Override,
+            defaultWeight = 0f,
+            avatarMask = ArmsMask(),
+        };
+        foreach ((AnimatorState state, Arms arms) in states) layer.SetOverrideMotion(state, ArmsVersion(state.motion, arms));
+        controller.AddLayer(layer);
+    }
+
+    // The empty-handed version of a clip or a whole blend tree, made once per build.
+    static Motion ArmsVersion(Motion motion, Arms arms)
+    {
+        if (motion == null) return null;
+        if (armsVersions.TryGetValue((motion, arms), out Motion done)) return done;
+        Motion result;
+        if (motion is AnimationClip clip) result = UnarmedArms(clip, arms);
+        else
+        {
+            var tree = (BlendTree)motion;
+            var copy = new BlendTree
+            {
+                name = tree.name + " " + arms,
+                blendType = tree.blendType,
+                blendParameter = tree.blendParameter,
+                blendParameterY = tree.blendParameterY,
+                useAutomaticThresholds = false,
+            };
+            AssetDatabase.AddObjectToAsset(copy, controller);
+            ChildMotion[] children = tree.children;
+            for (int i = 0; i < children.Length; i++) children[i].motion = ArmsVersion(children[i].motion, arms);
+            copy.children = children;
+            result = copy;
+        }
+        armsVersions[(motion, arms)] = result;
+        return result;
+    }
+
+    // Empty-handed arms for a pistol-pack clip, in one of three ways:
+    // - Swing: loose arms, hanging at her sides with the relaxed idle's hands. Each swings forward as
+    //   the other side's foot steps forward, as far as the clip's feet travel; the faster the clip,
+    //   the harder they swing and the more the elbows bend (a run's are at about 90 degrees).
+    //   Crouched, they hang forward over the knees and barely swing.
+    // - Mirror: the free left arm copied onto the right, both reacting together (a flinch).
+    // - Hands: the arms keep the clip's own motion; only the right hand opens like the left (a fall).
+    static AnimationClip UnarmedArms(AnimationClip source, Arms arms)
+    {
+        string path = ArmsFolder + "/" + source.name + " " + arms + ".anim";
+        AnimationClip clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(path);
+        if (clip == null)
+        {
+            clip = new AnimationClip();
+            AssetDatabase.CreateAsset(clip, path);
+        }
+        clip.ClearCurves();
+        clip.frameRate = source.frameRate;
+        bool loop = AnimationUtility.GetAnimationClipSettings(source).loopTime;
+        if (arms == Arms.Swing) SwingingArms(source, clip);
+        else
+        {
+            foreach (EditorCurveBinding binding in AnimationUtility.GetCurveBindings(source))
+            {
+                string muscle = binding.propertyName;
+                bool left = muscle.StartsWith("Left") && IsArmMuscle(muscle.Substring(4));
+                bool right = muscle.StartsWith("Right") && IsArmMuscle(muscle.Substring(5));
+                if (!left && !right) continue;
+                bool finger = muscle.Contains("Hand.");
+                AnimationCurve curve = AnimationUtility.GetEditorCurve(source, binding);
+                if (left)
+                {
+                    AnimationUtility.SetEditorCurve(clip, binding, curve);
+                    if (arms == Arms.Hands && !finger) continue;
+                    EditorCurveBinding mirrored = binding;
+                    mirrored.propertyName = "Right" + muscle.Substring(4);
+                    AnimationUtility.SetEditorCurve(clip, mirrored, curve);
+                }
+                else if (arms == Arms.Hands && !finger)
+                {
+                    AnimationUtility.SetEditorCurve(clip, binding, curve);
+                }
+            }
+        }
+        AnimationClipSettings settings = AnimationUtility.GetAnimationClipSettings(clip);
+        settings.loopTime = loop;
+        AnimationUtility.SetAnimationClipSettings(clip, settings);
+        EditorUtility.SetDirty(clip);
+        return clip;
+    }
+
+    // Loose arms for Arms.Swing, in muscle values measured on MotusMan against his torso: Arm Down-Up
+    // -0.7 and Arm Front-Back 0.1 hang the arm down at his side, 9 degrees out and 4 forward; 0.2 more
+    // or less of Front-Back swings it about 15 degrees back or forward; Forearm Stretch 0.7 bends the
+    // elbow to about 156 degrees, -0.1 to about 90. Crouched, Down-Up -0.475 and Front-Back -0.125
+    // hold the arm 28 degrees forward, over the knees.
+    static void SwingingArms(AnimationClip source, AnimationClip clip)
+    {
+        AnimationCurve rootY = Curve(source, "RootT.y");
+        AnimationCurve leftFoot = Curve(source, "LeftFootT.z"), rightFoot = Curve(source, "RightFootT.z");
+        float length = Mathf.Max(source.length, 1f / source.frameRate);
+        int frames = Mathf.Max(1, Mathf.RoundToInt(length * source.frameRate));
+        float dt = length / frames;
+        float Mean(AnimationCurve curve)
+        {
+            if (curve == null) return 0f;
+            float sum = 0f;
+            for (int i = 0; i <= frames; i++) sum += curve.Evaluate(i * dt);
+            return sum / (frames + 1);
+        }
+        bool crouched = Mean(rootY) < 0.8f;
+        // How hard she moves: 0 at a walk or slower, 1 at a run, from the clip's own pace.
+        float pace = Stride(source) / length;
+        float effort = crouched ? 0f : Mathf.InverseLerp(1.5f, 4.5f, pace);
+        // Front-Back per metre the opposite foot is ahead of its average.
+        float swing = crouched ? 0.35f : Mathf.Lerp(0.7f, 1f, effort);
+        float down = crouched ? -0.475f : -0.7f, hang = crouched ? -0.125f : 0.1f;
+        float elbow = crouched ? 0.4f : Mathf.Lerp(0.7f, -0.1f, effort);
+        float leftMean = Mean(leftFoot), rightMean = Mean(rightFoot);
+
+        var muscles = new Dictionary<string, float[]>();
+        foreach (string side in new[] { "Left", "Right" })
+        {
+            AnimationCurve otherFoot = side == "Left" ? rightFoot : leftFoot;
+            float otherMean = side == "Left" ? rightMean : leftMean;
+            var frontBack = new float[frames + 1];
+            for (int i = 0; i <= frames; i++)
+                frontBack[i] = hang - swing * (otherFoot != null ? otherFoot.Evaluate(i * dt) - otherMean : 0f);
+            muscles[side + " Arm Front-Back"] = frontBack;
+            muscles[side + " Arm Down-Up"] = Constant(down, frames);
+            muscles[side + " Shoulder Down-Up"] = Constant(0f, frames);
+            muscles[side + " Shoulder Front-Back"] = Constant(0f, frames);
+            muscles[side + " Forearm Stretch"] = Constant(elbow, frames);
+        }
+        // The wrist, the forearm's turn and the fingers come from the relaxed idle's free left hand.
+        foreach (EditorCurveBinding binding in AnimationUtility.GetCurveBindings(relaxedHand))
+        {
+            string muscle = binding.propertyName;
+            if (!muscle.StartsWith("Left") || !IsArmMuscle(muscle.Substring(4))) continue;
+            string part = muscle.Substring(4);
+            if (part.StartsWith(" Arm Front-Back") || part.StartsWith(" Arm Down-Up") || part.StartsWith(" Shoulder") || part.StartsWith(" Forearm Stretch")) continue;
+            float value = AnimationUtility.GetEditorCurve(relaxedHand, binding).Evaluate(0f);
+            muscles[muscle] = Constant(value, frames);
+            muscles["Right" + part] = Constant(value, frames);
+        }
+        foreach (var pair in muscles)
+        {
+            var keys = new Keyframe[frames + 1];
+            float[] values = pair.Value;
+            for (int i = 0; i <= frames; i++)
+            {
+                float before = values[Mathf.Max(0, i - 1)], after = values[Mathf.Min(frames, i + 1)];
+                float slope = (after - before) / ((Mathf.Min(frames, i + 1) - Mathf.Max(0, i - 1)) * dt);
+                keys[i] = new Keyframe(i * dt, values[i], slope, slope);
+            }
+            AnimationUtility.SetEditorCurve(clip, EditorCurveBinding.FloatCurve("", typeof(Animator), pair.Key), new AnimationCurve(keys));
+        }
+    }
+
+    static float[] Constant(float value, int frames)
+    {
+        var values = new float[frames + 1];
+        for (int i = 0; i <= frames; i++) values[i] = value;
+        return values;
+    }
+
+    // The shoulder, arm, forearm and wrist muscles and the fingers, named without their side.
+    static bool IsArmMuscle(string muscle) =>
+        muscle.StartsWith(" Shoulder") || muscle.StartsWith(" Arm") || muscle.StartsWith(" Forearm") || muscle.StartsWith(" Hand") || muscle.StartsWith("Hand.");
+
     // ---- Blend trees ----
 
     // One gait in a speed blend: the clip from `from` to `to` m/s. A `from` of 0 means "where the
@@ -714,12 +960,14 @@ public static class PlayerAnimatorBuilder
         }
     }
 
-    // A 1D blend on Speed in m/s. Each clip plays just fast enough that Eve's feet cover the speed it
+    // A 1D blend on Speed in m/s. Each clip plays just fast enough that her feet cover the speed it
     // sits at. Two gaits blend at the same cadence: the slower one speeds up to its top, and the
     // faster one takes over at the speed its longer stride gives at that cadence.
     static BlendTree GaitTree(string name, AnimationClip idle, params Gait[] gaits)
     {
-        var children = new List<(Motion motion, float at, float timeScale, float cycleOffset)> { (idle, 0f, 1f, 0f) };
+        var children = new List<(Motion motion, float at, float timeScale, float cycleOffset)>();
+        // Without an idle, the tree starts at the first gait; an outer blend fades it in from a stand.
+        if (idle != null) children.Add((idle, 0f, 1f, 0f));
         float last = 0f;
         AnimationClip previous = null;
         foreach (Gait gait in gaits)
@@ -808,11 +1056,45 @@ public static class PlayerAnimatorBuilder
     static float Stride(AnimationClip clip)
     {
         Vector3 start = RootPosition(clip, 0f), end = RootPosition(clip, clip.length);
-        return new Vector2(end.x - start.x, end.z - start.z).magnitude;
+        float stride = new Vector2(end.x - start.x, end.z - start.z).magnitude;
+        return stride > 0.05f ? stride : InPlaceStride(clip);
     }
 
-    // Speed along the ground on Eve, in m/s. Humanoid clips store their motion for a human of scale 1;
-    // Eve is smaller, so each of her steps covers less ground than the clip's own figure.
+    // An in-place clip keeps the body still, so its
+    // stride is read from the feet instead: the planted foot slides back at the speed the body would
+    // go forward. Only frames with a foot within 2 cm of its lowest point count, so a run's flight
+    // phase doesn't drag the figure down. Checked against a walk with root motion: within 10%.
+    static float InPlaceStride(AnimationClip clip)
+    {
+        AnimationCurve leftY = Curve(clip, "LeftFootT.y"), rightY = Curve(clip, "RightFootT.y");
+        AnimationCurve leftZ = Curve(clip, "LeftFootT.z"), rightZ = Curve(clip, "RightFootT.z");
+        if (leftY == null || rightY == null || leftZ == null || rightZ == null || clip.length <= 0f) return 0f;
+        const int samples = 300;
+        float dt = clip.length / samples, leftMin = float.MaxValue, rightMin = float.MaxValue;
+        for (int i = 0; i < samples; i++)
+        {
+            leftMin = Mathf.Min(leftMin, leftY.Evaluate(i * dt));
+            rightMin = Mathf.Min(rightMin, rightY.Evaluate(i * dt));
+        }
+        float sum = 0f;
+        int count = 0;
+        for (int i = 0; i < samples; i++)
+        {
+            float t = i * dt;
+            foreach ((AnimationCurve y, AnimationCurve z, float min) in new[] { (leftY, leftZ, leftMin), (rightY, rightZ, rightMin) })
+            {
+                if (y.Evaluate(t) > min + 0.02f) continue;
+                sum += -(z.Evaluate(t + dt) - z.Evaluate(t)) / dt;
+                count++;
+            }
+        }
+        float speed = count > 0 ? sum / count : 0f;
+        // Standing loops shuffle their feet a little; that is not a stride.
+        return speed > 0.3f ? speed * clip.length : 0f;
+    }
+
+    // Speed along the ground on her, in m/s. Humanoid clips store their motion for a human of scale 1;
+    // she is smaller, so each of her steps covers less ground than the clip's own figure.
     static float Speed(AnimationClip clip) => clip.length > 0f ? Stride(clip) / clip.length * scale : 0f;
 
     // A curve clip moves along an arc, whose path is longer than the straight line between its ends.
@@ -875,7 +1157,7 @@ public static class PlayerAnimatorBuilder
         return (exit, best);
     }
 
-    static void WriteProfile(LocomotionProfile.UnarmedClips unarmed, float walk, float jog, float aimWalk, float aimJog, float crouchWalk, float crouchAimWalk, float holsteredWalk, float hurtWalk, float hurtRun,
+    static void WriteProfile(float walk, float jog, float aimWalk, float aimJog, float crouchWalk, float crouchAimWalk, float rapidFireInterval,
         (AnimationClip straight, AnimationClip left, AnimationClip right) run, (AnimationClip straight, AnimationClip left, AnimationClip right) aimWalkTurn,
         (AnimationClip straight, AnimationClip left, AnimationClip right) aimJogTurn, AnimationClip turnLeft, AnimationClip turnRight)
     {
@@ -892,11 +1174,10 @@ public static class PlayerAnimatorBuilder
         profile.aimJog = aimJog;
         profile.crouchWalk = crouchWalk;
         profile.crouchAimWalk = crouchAimWalk;
-        profile.holsteredWalk = holsteredWalk;
-        profile.holsteredRun = unarmed.run;
-        profile.unarmed = unarmed;
-        profile.hurtWalk = hurtWalk;
-        profile.hurtRun = hurtRun;
+        // The pack has no limp: badly hurt she walks at the walk's own pace and hurries no faster than a jog.
+        profile.hurtWalk = walk;
+        profile.hurtRun = jog;
+        profile.rapidFireInterval = rapidFireInterval;
         profile.turnInPlaceRate = (YawRate(turnRight) - YawRate(turnLeft)) / 2f;
         profile.maxTurnInPlaceRate = MaxTurnInPlaceRate;
         profile.runTurn = Lean(run, SprintSpeed / Speed(run.straight));
@@ -924,47 +1205,207 @@ public static class PlayerAnimatorBuilder
             importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
             importer.SaveAndReimport();
         }
-        foreach (Object asset in AssetDatabase.LoadAllAssetsAtPath(MotusManPath))
+        return LoadAvatar(MotusManPath);
+    }
+
+    // 22 files of the pack (the relaxed jog, the relaxed walk back and aside, the relaxed crouch walk)
+    // are on the Unreal mannequin's skeleton, and have no bind pose: Unity took each one's avatar from
+    // its first frame, so a bent left knee and a right foot pointing up counted as standing straight,
+    // and those clips broke her ankles. They share one avatar instead, built from the mannequin's bones
+    // laid out in MotusMan's T-pose: every limb points the way MotusMan's does, with the feet as high
+    // off the ground.
+    static Avatar PrepareMannequin()
+    {
+        var importer = (ModelImporter)AssetImporter.GetAtPath(MannequinSource);
+        if (importer.animationType != ModelImporterAnimationType.Human || importer.avatarSetup != ModelImporterAvatarSetup.CreateFromThisModel)
+        {
+            importer.animationType = ModelImporterAnimationType.Human;
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.SaveAndReimport();
+        }
+        HumanDescription description = importer.humanDescription;
+        HumanDescription reference = ((ModelImporter)AssetImporter.GetAtPath(MotusManPath)).humanDescription;
+        mannequinRebuilt = AlignToReference(ref description, AssetDatabase.LoadAssetAtPath<GameObject>(MannequinSource).transform,
+            reference, AssetDatabase.LoadAssetAtPath<GameObject>(MotusManPath).transform);
+        if (mannequinRebuilt)
+        {
+            importer.humanDescription = description;
+            importer.SaveAndReimport();
+        }
+        return LoadAvatar(MannequinSource);
+    }
+
+    // The limbs laid out like the reference's, from the body outward: each bone points at the next,
+    // and where a roll is given, the bone also turns about its length until the line between the two
+    // roll bones lies as the reference's does (the palm across the knuckles, the foot ahead of the shin).
+    const HumanBodyBones None = HumanBodyBones.LastBone;
+    static readonly (HumanBodyBones bone, HumanBodyBones next, HumanBodyBones rollFrom, HumanBodyBones rollTo)[] AlignedLimbs =
+    {
+        (HumanBodyBones.Spine, HumanBodyBones.Chest, None, None), (HumanBodyBones.Chest, HumanBodyBones.UpperChest, None, None), (HumanBodyBones.Chest, HumanBodyBones.Neck, None, None),
+        (HumanBodyBones.UpperChest, HumanBodyBones.Neck, None, None), (HumanBodyBones.Neck, HumanBodyBones.Head, None, None),
+        (HumanBodyBones.LeftUpperLeg, HumanBodyBones.LeftLowerLeg, None, None),
+        (HumanBodyBones.LeftLowerLeg, HumanBodyBones.LeftFoot, HumanBodyBones.LeftFoot, HumanBodyBones.LeftToes),
+        (HumanBodyBones.LeftFoot, HumanBodyBones.LeftToes, None, None),
+        (HumanBodyBones.RightUpperLeg, HumanBodyBones.RightLowerLeg, None, None),
+        (HumanBodyBones.RightLowerLeg, HumanBodyBones.RightFoot, HumanBodyBones.RightFoot, HumanBodyBones.RightToes),
+        (HumanBodyBones.RightFoot, HumanBodyBones.RightToes, None, None),
+        (HumanBodyBones.LeftShoulder, HumanBodyBones.LeftUpperArm, None, None), (HumanBodyBones.LeftUpperArm, HumanBodyBones.LeftLowerArm, None, None),
+        (HumanBodyBones.LeftLowerArm, HumanBodyBones.LeftHand, HumanBodyBones.LeftIndexProximal, HumanBodyBones.LeftLittleProximal),
+        (HumanBodyBones.LeftHand, HumanBodyBones.LeftMiddleProximal, HumanBodyBones.LeftIndexProximal, HumanBodyBones.LeftLittleProximal),
+        (HumanBodyBones.RightShoulder, HumanBodyBones.RightUpperArm, None, None), (HumanBodyBones.RightUpperArm, HumanBodyBones.RightLowerArm, None, None),
+        (HumanBodyBones.RightLowerArm, HumanBodyBones.RightHand, HumanBodyBones.RightIndexProximal, HumanBodyBones.RightLittleProximal),
+        (HumanBodyBones.RightHand, HumanBodyBones.RightMiddleProximal, HumanBodyBones.RightIndexProximal, HumanBodyBones.RightLittleProximal),
+    };
+
+    // Turns the target's rest pose so each limb in AlignedLimbs lies where the reference's does in
+    // its T-pose, then raises or lowers the hips so the feet are as high as the reference's. Both
+    // models face +Z with Y up. Returns false when the pose already matches.
+    static bool AlignToReference(ref HumanDescription target, Transform targetRoot, HumanDescription reference, Transform referenceRoot)
+    {
+        Dictionary<string, Matrix4x4> referencePose = RestPose(reference.skeleton, referenceRoot, out _);
+        Dictionary<string, string> referenceBones = BoneNames(reference), bones = BoneNames(target);
+        SkeletonBone[] skeleton = target.skeleton;
+        var index = new Dictionary<string, int>();
+        for (int i = 0; i < skeleton.Length; i++) index[skeleton[i].name] = i;
+        bool changed = false;
+        bool Has(HumanBodyBones bone) => bones.ContainsKey(HumanTrait.BoneName[(int)bone]) && referenceBones.ContainsKey(HumanTrait.BoneName[(int)bone]);
+        Vector3 At(Dictionary<string, Matrix4x4> pose, Dictionary<string, string> names, HumanBodyBones bone) => pose[names[HumanTrait.BoneName[(int)bone]]].GetColumn(3);
+
+        foreach ((HumanBodyBones bone, HumanBodyBones next, HumanBodyBones rollFrom, HumanBodyBones rollTo) in AlignedLimbs)
+        {
+            if (!Has(bone) || !Has(next) || !index.TryGetValue(bones[HumanTrait.BoneName[(int)bone]], out int i)) continue;
+            string name = bones[HumanTrait.BoneName[(int)bone]];
+            Dictionary<string, Matrix4x4> pose = RestPose(skeleton, targetRoot, out Dictionary<string, string> parents);
+            Vector3 want = (At(referencePose, referenceBones, next) - At(referencePose, referenceBones, bone)).normalized;
+            Vector3 have = (At(pose, bones, next) - At(pose, bones, bone)).normalized;
+            Quaternion turn = Quaternion.FromToRotation(have, want);
+            if (rollFrom != None && Has(rollFrom) && Has(rollTo))
+            {
+                Vector3 rollWant = Vector3.ProjectOnPlane(At(referencePose, referenceBones, rollTo) - At(referencePose, referenceBones, rollFrom), want);
+                Vector3 rollHave = Vector3.ProjectOnPlane(turn * (At(pose, bones, rollTo) - At(pose, bones, rollFrom)), want);
+                turn = Quaternion.AngleAxis(Vector3.SignedAngle(rollHave, rollWant, want), want) * turn;
+            }
+            float angle = Quaternion.Angle(Quaternion.identity, turn);
+            if (angle < 0.5f) continue;
+            Quaternion parent = Rotation(pose[parents[name]]);
+            skeleton[i].rotation = Quaternion.Inverse(parent) * (turn * Rotation(pose[name]));
+            changed = true;
+        }
+
+        // Feet on the ground: lift or lower the hips by however far the feet are off the reference's.
+        Dictionary<string, Matrix4x4> laidOut = RestPose(skeleton, targetRoot, out Dictionary<string, string> parentOf);
+        float FootHeight(Dictionary<string, Matrix4x4> pose, Dictionary<string, string> names) =>
+            (pose[names["LeftFoot"]].GetColumn(3).y + pose[names["RightFoot"]].GetColumn(3).y) / 2f;
+        float lift = FootHeight(referencePose, referenceBones) - FootHeight(laidOut, bones);
+        if (Mathf.Abs(lift) > 0.001f && index.TryGetValue(bones["Hips"], out int hips))
+        {
+            Matrix4x4 parent = laidOut[parentOf[bones["Hips"]]];
+            skeleton[hips].position += (Vector3)parent.inverse.MultiplyVector(Vector3.up * lift);
+            changed = true;
+        }
+        target.skeleton = skeleton;
+        return changed;
+    }
+
+    // Each bone's rest pose in the model's space, by name, from the avatar's skeleton where it has the
+    // bone and from the model itself where it doesn't, with each bone's parent.
+    static Dictionary<string, Matrix4x4> RestPose(SkeletonBone[] skeleton, Transform root, out Dictionary<string, string> parents)
+    {
+        var bones = new Dictionary<string, SkeletonBone>();
+        foreach (SkeletonBone bone in skeleton) bones[bone.name] = bone;
+        var pose = new Dictionary<string, Matrix4x4>();
+        var parentNames = new Dictionary<string, string>();
+        void Walk(Transform transform, Matrix4x4 parent)
+        {
+            Matrix4x4 local = bones.TryGetValue(transform.name, out SkeletonBone bone)
+                ? Matrix4x4.TRS(bone.position, bone.rotation, bone.scale)
+                : Matrix4x4.TRS(transform.localPosition, transform.localRotation, transform.localScale);
+            Matrix4x4 world = parent * local;
+            pose[transform.name] = world;
+            foreach (Transform child in transform)
+            {
+                parentNames[child.name] = transform.name;
+                Walk(child, world);
+            }
+        }
+        pose[root.name] = Matrix4x4.identity;
+        foreach (Transform child in root)
+        {
+            parentNames[child.name] = root.name;
+            Walk(child, Matrix4x4.identity);
+        }
+        parents = parentNames;
+        return pose;
+    }
+
+    static Quaternion Rotation(Matrix4x4 m) => Quaternion.LookRotation(m.GetColumn(2), m.GetColumn(1));
+
+    static Dictionary<string, string> BoneNames(HumanDescription description)
+    {
+        var names = new Dictionary<string, string>();
+        foreach (HumanBone bone in description.human) names[bone.humanName] = bone.boneName;
+        return names;
+    }
+
+    static Avatar LoadAvatar(string path)
+    {
+        foreach (Object asset in AssetDatabase.LoadAllAssetsAtPath(path))
         {
             if (asset is Avatar avatar) return avatar;
         }
-        throw new InvalidOperationException("MotusMan_v55 has no avatar");
+        throw new InvalidOperationException("No avatar in " + path);
     }
 
-    // Some clips on the mannequin's skeleton still put Eve's feet too low with the height taken from the
-    // feet. This is the importer's height offset that lifts them back (negative raises the body; one
-    // unit is about 0.92 m on Eve), measured in Play mode as the lower ankle's mean height against the
-    // MotusMan clips of the same stance. The relaxed jog needs none.
-    static readonly Dictionary<string, float> MannequinLift = new()
-    {
-        { "W1_CrouchWalk_F_Loop", -0.083f },
-    };
-
-    // A pack clip, imported as Humanoid. Some files are on the Unreal mannequin's skeleton instead of
-    // MotusMan's: they get their own avatar and take the body's height from the feet, because that
-    // skeleton's proportions would lift her off the floor. Turns keep their yaw out of the pose.
-    static AnimationClip PackClip(string path, Avatar motusMan, bool loop = false, bool turn = false)
+    // A pack clip, imported as Humanoid on MotusMan's avatar, or the shared mannequin avatar for the
+    // files on that skeleton. Turns keep their yaw out of the pose.
+    static AnimationClip PackClip(string path, bool loop = false, bool turn = false)
     {
         if (AssetImporter.GetAtPath(path) is not ModelImporter importer) throw new InvalidOperationException("Missing " + path);
         GameObject model = AssetDatabase.LoadAssetAtPath<GameObject>(path);
-        bool mannequin = model != null && HasChild(model.transform, "pelvis");
+        bool onMannequin = model != null && HasChild(model.transform, "pelvis");
         bool changed = importer.animationType != ModelImporterAnimationType.Human;
         importer.animationType = ModelImporterAnimationType.Human;
-        if (mannequin)
+        if (path != MannequinSource)
         {
-            changed |= importer.avatarSetup != ModelImporterAvatarSetup.CreateFromThisModel;
-            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
-        }
-        else
-        {
-            changed |= importer.avatarSetup != ModelImporterAvatarSetup.CopyFromOther || importer.sourceAvatar != motusMan;
+            Avatar source = onMannequin ? mannequin : motusMan;
+            changed |= importer.avatarSetup != ModelImporterAvatarSetup.CopyFromOther || importer.sourceAvatar != source || (onMannequin && mannequinRebuilt);
             importer.avatarSetup = ModelImporterAvatarSetup.CopyFromOther;
-            importer.sourceAvatar = motusMan;
+            importer.sourceAvatar = source;
         }
         if (changed) importer.SaveAndReimport();
-        MannequinLift.TryGetValue(System.IO.Path.GetFileNameWithoutExtension(path), out float lift);
-        SetClipSettings(importer, loop, bakeRotation: !turn, fromFeet: mannequin, lift);
-        return Load(path);
+        SetClipSettings(importer, loop, bakeRotation: !turn);
+        return Load(path, importer.clipAnimations[0].name);
+    }
+
+    // A pack clip's first `frames` frames as a clip of their own, next to the whole one in the same file.
+    static AnimationClip PackTake(string path, string name, int frames)
+    {
+        AnimationClip whole = PackClip(path);
+        var importer = (ModelImporter)AssetImporter.GetAtPath(path);
+        var clips = new List<ModelImporterClipAnimation>(importer.clipAnimations);
+        ModelImporterClipAnimation take = clips.Find(c => c.name == name);
+        ModelImporterClipAnimation first = clips[0];
+        if (take == null || take.firstFrame != first.firstFrame || !Mathf.Approximately(take.lastFrame, first.firstFrame + frames))
+        {
+            clips.Remove(take);
+            clips.Add(new ModelImporterClipAnimation
+            {
+                name = name,
+                takeName = first.takeName,
+                firstFrame = first.firstFrame,
+                lastFrame = first.firstFrame + frames,
+                loopTime = false,
+                lockRootHeightY = first.lockRootHeightY,
+                keepOriginalPositionY = first.keepOriginalPositionY,
+                heightFromFeet = first.heightFromFeet,
+                lockRootRotation = first.lockRootRotation,
+                keepOriginalOrientation = first.keepOriginalOrientation,
+                heightOffset = first.heightOffset,
+            });
+            importer.clipAnimations = clips.ToArray();
+            importer.SaveAndReimport();
+        }
+        return whole != null ? Load(path, name) : null;
     }
 
     static bool HasChild(Transform parent, string name)
@@ -976,15 +1417,25 @@ public static class PlayerAnimatorBuilder
         return false;
     }
 
-    // An optional unarmed clip: null while its file isn't in the Mixamo folder.
-    static AnimationClip Optional(string file, bool loop, bool bakeRotation) =>
-        AssetImporter.GetAtPath(Mixamo + file) is ModelImporter ? Load(PrepareMixamo(Mixamo + file, loop, bakeRotation)) : null;
-
-    // Caps how far Eve's feet bend up and twist (see FootUpLimit), on her own avatar, so every clip
-    // retargeted onto her keeps the heels believable.
-    static void LimitFeet(string path)
+    // Makes sure the model is humanoid and returns the file its avatar comes from.
+    static string PrepareModel(PlayerCharacterSetup setup)
     {
-        var importer = (ModelImporter)AssetImporter.GetAtPath(path);
+        Animator animator = setup.model.GetComponentInChildren<Animator>();
+        string path = animator != null && animator.avatar != null ? AssetDatabase.GetAssetPath(animator.avatar) : AssetDatabase.GetAssetPath(setup.model);
+        if (AssetImporter.GetAtPath(path) is ModelImporter importer && importer.animationType != ModelImporterAnimationType.Human)
+        {
+            importer.animationType = ModelImporterAnimationType.Human;
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.SaveAndReimport();
+        }
+        return path;
+    }
+
+    // Caps how far the feet bend up toward the shins and twist, on the model's own avatar, so every
+    // clip retargeted onto a model in high heels keeps them believable.
+    static void LimitFeet(string path, float upLimit, float twistLimit)
+    {
+        if (AssetImporter.GetAtPath(path) is not ModelImporter importer) return;
         HumanDescription description = importer.humanDescription;
         HumanBone[] bones = description.human;
         bool changed = false;
@@ -994,8 +1445,11 @@ public static class PlayerAnimatorBuilder
             var limit = new HumanLimit
             {
                 useDefaultValues = false,
-                min = new Vector3(-50f, -FootTwistLimit, 0f),
-                max = new Vector3(FootUpLimit, FootTwistLimit, 0f),
+                // A foot's muscles: y is Foot Twist In-Out, z is Foot Up-Down (x has none). Negative z
+                // bends the foot up toward the shin, which heels allow little of; pointing the toes
+                // keeps Unity's 50 degrees.
+                min = new Vector3(0f, -twistLimit, -upLimit),
+                max = new Vector3(0f, twistLimit, 50f),
                 center = Vector3.zero,
             };
             if (!bones[i].limit.useDefaultValues && bones[i].limit.min == limit.min && bones[i].limit.max == limit.max) continue;
@@ -1008,38 +1462,28 @@ public static class PlayerAnimatorBuilder
         importer.SaveAndReimport();
     }
 
-    static string PrepareMixamo(string path, bool loop, bool bakeRotation)
-    {
-        if (AssetImporter.GetAtPath(path) is not ModelImporter importer) return path;
-        if (importer.animationType != ModelImporterAnimationType.Human || importer.avatarSetup != ModelImporterAvatarSetup.CreateFromThisModel)
-        {
-            importer.animationType = ModelImporterAnimationType.Human;
-            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
-            importer.SaveAndReimport();
-        }
-        SetClipSettings(importer, loop, bakeRotation, fromFeet: false);
-        return path;
-    }
-
     // Root motion is off for the body, so whatever a clip leaves as root motion is thrown away.
     // The hips' rise and fall has to stay in the pose, or the legs bend while the body glides level
     // and the feet sink into the floor. Forward travel stays root motion and is dropped, because
     // PlayerController moves the body.
-    static void SetClipSettings(ModelImporter importer, bool loop, bool bakeRotation, bool fromFeet, float lift = 0f)
+    static void SetClipSettings(ModelImporter importer, bool loop, bool bakeRotation)
     {
         ModelImporterClipAnimation[] clips = importer.clipAnimations;
         if (clips == null || clips.Length == 0) clips = importer.defaultClipAnimations;
         bool changed = false;
-        foreach (ModelImporterClipAnimation clip in clips)
+        for (int i = 0; i < clips.Length; i++)
         {
-            if (clip.loopTime == loop && clip.lockRootHeightY && clip.keepOriginalPositionY == !fromFeet && clip.heightFromFeet == fromFeet
-                && clip.lockRootRotation == bakeRotation && (!bakeRotation || clip.keepOriginalOrientation) && Mathf.Approximately(clip.heightOffset, lift))
+            ModelImporterClipAnimation clip = clips[i];
+            // Extra takes (the hit cut from a fall) never loop.
+            bool clipLoop = i == 0 && loop;
+            if (clip.loopTime == clipLoop && clip.lockRootHeightY && clip.keepOriginalPositionY && !clip.heightFromFeet
+                && clip.lockRootRotation == bakeRotation && (!bakeRotation || clip.keepOriginalOrientation) && clip.heightOffset == 0f)
                 continue;
-            clip.heightOffset = lift;
-            clip.loopTime = loop;
+            clip.heightOffset = 0f;
+            clip.loopTime = clipLoop;
             clip.lockRootHeightY = true;
-            clip.keepOriginalPositionY = !fromFeet;
-            clip.heightFromFeet = fromFeet;
+            clip.keepOriginalPositionY = true;
+            clip.heightFromFeet = false;
             clip.lockRootRotation = bakeRotation;
             if (bakeRotation) clip.keepOriginalOrientation = true;
             changed = true;
@@ -1048,22 +1492,23 @@ public static class PlayerAnimatorBuilder
         if (changed) importer.SaveAndReimport();
     }
 
-    static AnimationClip Load(string path)
+    static AnimationClip Load(string path, string name = null)
     {
         foreach (Object asset in AssetDatabase.LoadAllAssetsAtPath(path))
         {
-            if (asset is AnimationClip clip && !clip.name.StartsWith("__preview")) return clip;
+            if (asset is AnimationClip clip && !clip.name.StartsWith("__preview") && (name == null || clip.name == name)) return clip;
         }
-        throw new InvalidOperationException("No animation clip in " + path);
+        throw new InvalidOperationException("No animation clip " + name + " in " + path);
     }
 
-    static float HumanScale()
+    // How big the model's skeleton is against a human of scale 1, times the scale it is placed at.
+    static float HumanScale(PlayerCharacterSetup setup)
     {
-        GameObject model = Object.Instantiate(AssetDatabase.LoadAssetAtPath<GameObject>(ModelPath));
+        GameObject model = Object.Instantiate(setup.model);
         model.hideFlags = HideFlags.HideAndDontSave;
-        float humanScale = model.GetComponent<Animator>().humanScale;
+        float humanScale = model.GetComponentInChildren<Animator>().humanScale;
         Object.DestroyImmediate(model);
-        return humanScale;
+        return humanScale * setup.modelScale;
     }
 
     // ---- Controller plumbing ----
@@ -1083,11 +1528,11 @@ public static class PlayerAnimatorBuilder
     {
         foreach (string name in new[] { "Speed", "Strafe", "Travel", "StopSpeed", "TurnRate", "AimPitch", "AimYaw", "AimBlend", "CrouchBlend", "IdleTime", "MoveScale" })
             controller.AddParameter(name, AnimatorControllerParameterType.Float);
-        foreach (string name in new[] { "IsAiming", "Danger", "Moving", "Sprint", "Forward", "TurnInPlace", "Grounded", "IsDead" })
+        foreach (string name in new[] { "IsAiming", "Danger", "Moving", "Sprint", "Forward", "TurnInPlace", "Grounded", "IsDead", "RapidFire" })
             controller.AddParameter(name, AnimatorControllerParameterType.Bool);
-        foreach (string name in new[] { "Stance", "JumpKind", "DeathDir", "TurnSide" })
+        foreach (string name in new[] { "Stance", "JumpKind", "DeathDir", "TurnSide", "Weapon" })
             controller.AddParameter(name, AnimatorControllerParameterType.Int);
-        foreach (string name in new[] { "Fire", "Reload", "Draw", "Holster", "Jump", "Stop", "QuickTurn", "Hit", "Dead" })
+        foreach (string name in new[] { "Fire", "Reload", "Draw", "Holster", "Swap", "Jump", "Stop", "QuickTurn", "Hit", "Dead" })
             controller.AddParameter(name, AnimatorControllerParameterType.Trigger);
         AnimatorControllerParameter[] parameters = controller.parameters;
         foreach (AnimatorControllerParameter parameter in parameters)
@@ -1095,6 +1540,7 @@ public static class PlayerAnimatorBuilder
             if (parameter.name == "Stance") parameter.defaultInt = Relaxed;
             if (parameter.name == "Grounded") parameter.defaultBool = true;
             if (parameter.name == "MoveScale") parameter.defaultFloat = 1f;
+            if (parameter.name == "Weapon") parameter.defaultInt = 1;
         }
         controller.parameters = parameters;
     }

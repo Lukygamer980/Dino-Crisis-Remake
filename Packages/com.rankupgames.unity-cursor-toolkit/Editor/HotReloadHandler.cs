@@ -1,0 +1,1481 @@
+/*
+ * HotReloadHandler.cs
+ *
+ * This script provides hot reload functionality between a Unity project and VS Code/Cursor.
+ * It creates a TCP server that listens for messages from the VS Code extension,
+ * then triggers Unity's asset database to refresh when code changes are detected.
+ *
+ * The handler supports three main commands:
+ * - Start: Starts the server on the default or next available port
+ * - Stop: Stops the server and disconnects all clients
+ * - Reload: Restarts the server on the same port (maintains connection stability)
+ *
+ * Copyright (c) 2025 Rank Up Games LLC
+ */
+
+using System;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
+using System.Text;
+using System.Collections.Generic;
+using System.Linq;
+
+using UnityEngine;
+
+#if UNITY_EDITOR
+using UnityEditor;
+
+#if UNITY_2019_1_OR_NEWER
+using UnityEditor.Compilation;
+#endif
+
+namespace UnityCursorToolkit
+{
+
+/// <summary>
+/// Editor window that handles hot reload functionality between Unity and VS Code/Cursor.
+/// Implements a TCP server to listen for file change notifications.
+/// </summary>
+[InitializeOnLoad]
+public partial class HotReloadHandler : EditorWindow
+{
+    // TCP server and communication components
+    private static TcpListener server;
+    private static Thread listenerThread;
+    private static bool shouldRequestRefresh = false;
+    private static int currentPort = 55500; // Current port being used
+    private static int lastSuccessfulPort = 55500; // Last port that successfully connected
+    private static readonly Queue<string> messageQueue = new Queue<string>();
+    private static int queuedMessageCharacters = 0;
+    private static bool messageQueueOverflowed = false;
+    private static bool messageQueueOverflowWarningLogged = false;
+    private static bool isInitialized = false;
+    private static volatile bool isServerRunning = false;
+    private static volatile bool stopRequested = true;
+    private static bool isQuitting;
+    private static bool reloadPrepared;
+    private static bool lifecycleInitialized;
+    private static readonly List<Thread> clientThreads = new List<Thread>();
+    private const int WORKER_STOP_TIMEOUT_MS = 1000;
+    private static readonly List<TcpClient> connectedClients = new List<TcpClient>();
+    private static readonly object clientListLock = new object();
+
+    // Port configuration
+    private const int DEFAULT_PORT = 55500;
+    private static readonly int[] ALTERNATIVE_PORTS = { 55500, 55501, 55502, 55503, 55504 };
+
+    // Add retry configuration for port binding
+    private const int PORT_RETRY_ATTEMPTS = 5;
+    private const int PORT_RETRY_DELAY_MS = 200;
+
+    // Debug control flag - determines whether connection logs are shown
+    private static bool showDebugLogs = false;
+    private const string debugPrefKey = "UnityHotReloadHandler_ShowDebugLogs";
+    private const string lastPortPrefKey = "UnityHotReloadHandler_LastPort";
+
+    // Used to check if we're already running
+    private static Mutex instanceMutex;
+    private static bool wasRunningBeforeReload = false;
+    private const string sessionStartedKey = "UnityHotReloadHandler_SessionStarted";
+    private const string sessionRunningKey = "UnityHotReloadHandler_SessionRunning";
+
+    private static readonly Queue<Action> mainThreadActions = new Queue<Action>();
+    private static readonly object mainThreadActionsLock = new object();
+    private static bool mainThreadActionsOverflowed = false;
+    private static bool mainThreadActionsOverflowWarningLogged = false;
+    private static bool isRefreshInProgress = false;
+
+    private const int MAX_QUEUED_MESSAGES = 1024;
+    private const int MAX_QUEUED_MESSAGE_CHARACTERS = 4 * 1024 * 1024;
+    private const int MAX_MESSAGES_PER_UPDATE = 64;
+    private const int MAX_QUEUED_MAIN_THREAD_ACTIONS = 256;
+    private const int MAX_MAIN_THREAD_ACTIONS_PER_UPDATE = 32;
+    private const int MAX_PENDING_LINE_CHARACTERS = 1024 * 1024;
+
+    #if UNITY_2019_1_OR_NEWER
+    private const double REFRESH_COMPILE_START_TIMEOUT_SECONDS = 2.0d;
+    private static bool refreshCompilationPending = false;
+    private static bool refreshCompilationStarted = false;
+    private static double refreshCompilationTimeoutAt = 0.0d;
+    #endif
+
+    /// <summary>
+    /// Static constructor called when Unity editor loads.
+    /// Initializes the server and registers for editor events.
+    /// </summary>
+    static HotReloadHandler()
+    {
+        #if !UNITY_7000_0_OR_NEWER
+        InitializeLifecycle();
+        #endif
+    }
+
+    private static void InitializeLifecycle()
+    {
+        #if UNITY_2020_2_OR_NEWER
+        if (AssetDatabase.IsAssetImportWorkerProcess()) return;
+        #endif
+        if (isQuitting || lifecycleInitialized) return;
+        lifecycleInitialized = true;
+        // Load debug setting from EditorPrefs
+        showDebugLogs = EditorPrefs.GetBool(debugPrefKey, false);
+        lastSuccessfulPort = EditorPrefs.GetInt(lastPortPrefKey, DEFAULT_PORT);
+        currentPort = lastSuccessfulPort;
+
+        // SessionState survives code reload; a fresh Editor still starts automatically.
+        if (!SessionState.GetBool(sessionStartedKey, false))
+        {
+            SessionState.SetBool(sessionStartedKey, true);
+            SessionState.SetBool(sessionRunningKey, true);
+        }
+        wasRunningBeforeReload = SessionState.GetBool(sessionRunningKey, false);
+
+        // Register for domain reload completion to restart the server
+        EditorApplication.update += OnEditorUpdate;
+
+        // Register shutdown handler
+        #if !UNITY_7000_0_OR_NEWER
+        AssemblyReloadEvents.beforeAssemblyReload += OnBeforeAssemblyReload;
+        AssemblyReloadEvents.afterAssemblyReload += OnAfterAssemblyReload;
+        #endif
+        EditorApplication.quitting += OnEditorQuitting;
+
+        #if UNITY_2019_1_OR_NEWER
+        CompilationPipeline.compilationStarted += OnCompilationStarted;
+        #endif
+
+        // Start on a fresh Editor launch or resume an active bridge after code reload.
+        EditorApplication.delayCall += () => {
+            if (!isQuitting && !reloadPrepared && !isInitialized && SessionState.GetBool(sessionRunningKey, false))
+            {
+                StartWithoutMutex();
+            }
+        };
+    }
+
+    /// <summary>
+    /// Starts the hot reload server if not already running.
+    /// Creates a mutex to ensure only one instance is active.
+    /// </summary>
+    [MenuItem("Tools/Hot Reload/Start")]
+    public static void Start()
+    {
+        if (isQuitting) return;
+        SessionState.SetBool(sessionRunningKey, true);
+        if (isInitialized && isServerRunning)
+        {
+            Debug.Log("Hot Reload server is already running.");
+            return;
+        }
+
+        // Try to create or open existing mutex
+        bool createdNew = false;
+        try
+        {
+            instanceMutex = new Mutex(true, "UnityHotReloadHandler", out createdNew);
+
+            if (createdNew == false)
+            {
+                // Try to get ownership of existing mutex with a timeout
+                try
+                {
+                    if (instanceMutex.WaitOne(100))
+                    {
+                        // We got ownership, likely from a crashed instance
+                        createdNew = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"(HotReloadHandler - Start) Mutex acquisition failed: {ex.Message}");
+                    createdNew = false;
+                }
+            }
+        }
+        catch (AbandonedMutexException)
+        {
+            // The mutex was abandoned, we can take ownership
+            createdNew = true;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"Mutex error: {ex.Message}. Starting without mutex protection.");
+            instanceMutex = null;
+            createdNew = true; // Proceed anyway
+        }
+
+        if (createdNew == false && instanceMutex != null)
+        {
+            // Check if a server is actually running on our port
+            if (IsPortInUse(currentPort) == false)
+            {
+                Debug.Log("Previous instance mutex found but port is free. Proceeding with startup.");
+                try
+                {
+                    instanceMutex.ReleaseMutex();
+                    instanceMutex.Close();
+                }
+                catch (Exception ex) { Debug.LogWarning($"(HotReloadHandler - Start) Mutex release failed: {ex.Message}"); }
+                instanceMutex = null;
+                createdNew = true;
+            }
+            else
+            {
+                Debug.Log("Another instance of Hot Reload server is already running. Skipping initialization.");
+                instanceMutex.Close();
+                instanceMutex = null;
+                return;
+            }
+        }
+
+        Debug.Log("Starting Unity Hot Reload server...");
+
+        // Start TCP listener thread
+        if (!StartListenerThread()) return;
+
+        isInitialized = true;
+
+    }
+
+    /// <summary>
+    /// Starts the server without mutex check, used after domain reload.
+    /// </summary>
+    private static void StartWithoutMutex()
+    {
+        if (isQuitting) return;
+        SessionState.SetBool(sessionRunningKey, true);
+        if (isInitialized && isServerRunning)
+        {
+            return;
+        }
+
+        Debug.Log("Restarting Unity Hot Reload server after domain reload...");
+
+        // Start TCP listener thread
+        if (!StartListenerThread()) return;
+
+        isInitialized = true;
+    }
+
+    /// <summary>
+    /// Checks if a specific port is in use.
+    /// </summary>
+    private static bool IsPortInUse(int port)
+    {
+        TcpListener tempListener = null;
+        try
+        {
+            // Explicitly qualify TcpListener and IPAddress to ensure correct type resolution
+            tempListener = new TcpListener(IPAddress.Any, port);
+            tempListener.Start();
+            return false; // Port is available if we could start
+        }
+        catch (SocketException ex)
+        {
+            // Check if the specific error is "Address already in use"
+            // Common error codes for this are 10048 (WSAEADDRINUSE on Windows) or 48/98 on Unix-like systems.
+            if (ex.SocketErrorCode == SocketError.AddressAlreadyInUse || ex.ErrorCode == 48 || ex.ErrorCode == 98 || ex.ErrorCode == 10048)
+            {
+                return true; // Port is in use
+            }
+            // For other socket exceptions, we might not be sure, but typically means not usable.
+            // Depending on desired behavior, could return true or re-throw. For IsPortInUse, true is safer.
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"(HotReloadHandler - IsPortInUse) Port check failed: {ex.Message}");
+            return true;
+        }
+        finally
+        {
+            if (tempListener != null)
+            {
+                tempListener.Stop(); // Stop also closes the listener socket
+            }
+        }
+    }
+
+    /// <summary>
+    /// Stops the hot reload server and releases resources.
+    /// </summary>
+    [MenuItem("Tools/Hot Reload/Stop")]
+    public static void Stop()
+    {
+        SessionState.SetBool(sessionRunningKey, false);
+        wasRunningBeforeReload = false;
+        if (isInitialized == false)
+        {
+            Debug.Log("Hot Reload server is not running.");
+        }
+        else
+        {
+            Debug.Log("Stopping Unity Hot Reload server...");
+        }
+
+        StopServer();
+
+        // Release the mutex
+        if (instanceMutex != null)
+        {
+            try
+            {
+                instanceMutex.ReleaseMutex();
+                instanceMutex.Close();
+            }
+            catch (Exception ex) { Debug.LogWarning($"(HotReloadHandler - Stop) Mutex release failed: {ex.Message}"); }
+            instanceMutex = null;
+        }
+
+        isInitialized = false;
+
+    }
+
+    /// <summary>
+    /// Reloads the hot reload server on the same port.
+    /// This maintains connection stability with the VS Code extension.
+    /// </summary>
+    [MenuItem("Tools/Hot Reload/Reload")]
+    public static void Reload()
+    {
+        if (isInitialized == false)
+        {
+            Debug.Log("Hot Reload server is not running. Starting fresh...");
+            Start();
+            return;
+        }
+
+        Debug.Log($"Reloading Unity Hot Reload server on port {currentPort}...");
+
+        // Store the current port to reuse it
+        int portToReuse = currentPort;
+
+        // Stop the server without releasing the mutex
+        if (!StopServer()) return;
+
+        // Try to restart on the same port with retries
+        bool restarted = false;
+        for (int attempt = 0; attempt < PORT_RETRY_ATTEMPTS; attempt++)
+        {
+            // Increasing delay between attempts to allow OS to release the port
+            Thread.Sleep(PORT_RETRY_DELAY_MS * (attempt + 1));
+
+            // Force the port for this reload
+            currentPort = portToReuse;
+
+            if (TryStartOnSpecificPort(portToReuse))
+            {
+                restarted = true;
+                Debug.Log($"Hot Reload server successfully reloaded on port {currentPort}");
+                break;
+            }
+
+            if (showDebugLogs)
+            {
+                Debug.Log($"Port {portToReuse} not available yet, attempt {attempt + 1}/{PORT_RETRY_ATTEMPTS}");
+            }
+        }
+
+        // If we couldn't restart on the same port, start normally
+        if (restarted == false)
+        {
+            Debug.LogWarning($"Could not reload on port {portToReuse}, starting on available port...");
+            StartListenerThread();
+        }
+    }
+
+    /// <summary>
+    /// Toggles whether debug logs are shown in the console.
+    /// Setting is persisted between editor sessions.
+    /// </summary>
+    [MenuItem("Tools/Hot Reload/Toggle Debug Logs")]
+    public static void ToggleDebugLogs()
+    {
+        showDebugLogs = !showDebugLogs;
+        EditorPrefs.SetBool(debugPrefKey, showDebugLogs);
+        Debug.Log($"Hot Reload: Debug logs are now {(showDebugLogs ? "enabled" : "disabled")}");
+    }
+
+    /// <summary>
+    /// Validates the Toggle Debug Logs menu item and sets its checked state.
+    /// </summary>
+    [MenuItem("Tools/Hot Reload/Toggle Debug Logs", true)]
+    public static bool ValidateToggleDebugLogs()
+    {
+        Menu.SetChecked("Tools/Hot Reload/Toggle Debug Logs", showDebugLogs);
+        return true;
+    }
+
+    /// <summary>
+    /// Starts the listener thread for TCP communication.
+    /// Ensures any existing thread is stopped first.
+    /// </summary>
+    private static bool StartListenerThread()
+    {
+        // Retain incomplete workers and block replacement startup if a join fails.
+        if (!StopServer()) return false;
+        stopRequested = false;
+
+        // Start new thread
+        listenerThread = new Thread(ListenerThreadFunction);
+        listenerThread.IsBackground = true;
+        listenerThread.Start();
+        return true;
+    }
+
+    /// <summary>
+    /// Stops the TCP server and cleans up the listener thread.
+    /// Enhanced with better socket cleanup for port reuse.
+    /// </summary>
+    private static bool StopServer()
+    {
+        List<TcpClient> clients;
+        List<Thread> workers;
+        TcpListener listener;
+        lock (clientListLock)
+        {
+            stopRequested = true;
+            isServerRunning = false;
+            listener = server;
+            clients = new List<TcpClient>(connectedClients);
+            workers = new List<Thread>(clientThreads);
+        }
+        shouldRequestRefresh = false;
+        isRefreshInProgress = false;
+        #if UNITY_2019_1_OR_NEWER
+        refreshCompilationPending = false;
+        refreshCompilationStarted = false;
+        refreshCompilationTimeoutAt = 0.0d;
+        CompilationPipeline.compilationFinished -= OnCompilationFinished;
+        #endif
+
+        // Closing sockets unblocks reads. Join outside clientListLock: HandleClient
+        // takes that lock in its finally block.
+        foreach (TcpClient client in clients)
+        {
+            try { client.Close(); }
+            catch (Exception ex) { Debug.LogWarning($"Hot Reload client close failed: {ex.Message}"); }
+        }
+        if (listener != null)
+        {
+            try { listener.Stop(); }
+            catch (Exception ex) { Debug.LogWarning($"Hot Reload listener stop failed: {ex.Message}"); }
+        }
+
+        if (listenerThread != null) workers.Add(listenerThread);
+        var deadline = System.Diagnostics.Stopwatch.StartNew();
+        bool complete = true;
+        foreach (Thread worker in workers)
+        {
+            int remaining = Math.Max(0, WORKER_STOP_TIMEOUT_MS - (int)deadline.ElapsedMilliseconds);
+            if (worker.IsAlive && !worker.Join(remaining)) complete = false;
+        }
+        if (!complete)
+        {
+            Debug.LogError("Hot Reload cleanup is incomplete: transport workers did not stop before the deadline. Replacement server startup is blocked.");
+            return false;
+        }
+
+        lock (clientListLock)
+        {
+            connectedClients.Clear();
+            clientThreads.Clear();
+            server = null;
+            listenerThread = null;
+        }
+        lock (messageQueue)
+        {
+            messageQueue.Clear();
+            queuedMessageCharacters = 0;
+            messageQueueOverflowed = false;
+            messageQueueOverflowWarningLogged = false;
+        }
+        lock (mainThreadActionsLock)
+        {
+            mainThreadActions.Clear();
+            mainThreadActionsOverflowed = false;
+            mainThreadActionsOverflowWarningLogged = false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Called before Unity reloads assemblies.
+    /// Stops the server to prevent threading issues during domain reload.
+    /// </summary>
+    #if UNITY_7000_0_OR_NEWER
+    [Unity.Scripting.LifecycleManagement.OnCodeUnloading]
+    #endif
+    private static void OnBeforeAssemblyReload()
+    {
+        if (isQuitting || !lifecycleInitialized || reloadPrepared) return;
+        reloadPrepared = true;
+        wasRunningBeforeReload = isInitialized && !stopRequested;
+        SessionState.SetBool(sessionRunningKey, wasRunningBeforeReload);
+
+        // Release mutex before domain reload
+        if (instanceMutex != null)
+        {
+            try
+            {
+                instanceMutex.ReleaseMutex();
+                instanceMutex.Close();
+            }
+            catch (Exception ex) { Debug.LogWarning($"(HotReloadHandler - OnBeforeAssemblyReload) Mutex release failed: {ex.Message}"); }
+            instanceMutex = null;
+        }
+
+        if (!StopServer())
+        {
+            wasRunningBeforeReload = false;
+            SessionState.SetBool(sessionRunningKey, false);
+        }
+        isInitialized = false;
+    }
+
+    #if UNITY_7000_0_OR_NEWER
+    [Unity.Scripting.LifecycleManagement.OnCodeInitializing]
+    #endif
+    private static void OnAfterAssemblyReload()
+    {
+        if (isQuitting) return;
+        if (!lifecycleInitialized)
+        {
+            InitializeLifecycle();
+            return;
+        }
+        reloadPrepared = false;
+        if (wasRunningBeforeReload && SessionState.GetBool(sessionRunningKey, false))
+        {
+            wasRunningBeforeReload = false;
+            StartWithoutMutex();
+        }
+    }
+
+    /// <summary>
+    /// Called when Unity editor is quitting.
+    /// Performs cleanup of resources.
+    /// </summary>
+    private static void OnEditorQuitting()
+    {
+        isQuitting = true;
+        // Native Editor APIs are still available here; late unload callbacks return.
+        Stop();
+    }
+
+    /// <summary>
+    /// Called every editor update frame.
+    /// Processes any queued messages from the TCP listener and triggers refreshes.
+    /// </summary>
+    private static void OnEditorUpdate()
+    {
+        if (stopRequested || isQuitting) return;
+        // Bound work per update so a client flood cannot monopolize Unity's main thread.
+        for (int index = 0; index < MAX_MESSAGES_PER_UPDATE; index++)
+        {
+            string message;
+            lock (messageQueue)
+            {
+                if (messageQueue.Count == 0)
+                {
+                    break;
+                }
+
+                message = messageQueue.Dequeue();
+                queuedMessageCharacters -= message.Length;
+            }
+
+            ProcessMessage(message);
+        }
+
+        for (int index = 0; index < MAX_MAIN_THREAD_ACTIONS_PER_UPDATE; index++)
+        {
+            Action action;
+            lock (mainThreadActionsLock)
+            {
+                if (mainThreadActions.Count == 0)
+                {
+                    break;
+                }
+
+                action = mainThreadActions.Dequeue();
+            }
+
+            action?.Invoke();
+        }
+
+        bool didOverflowMessageQueue;
+        lock (messageQueue)
+        {
+            didOverflowMessageQueue = messageQueueOverflowed;
+            messageQueueOverflowed = false;
+        }
+
+        if (didOverflowMessageQueue && !messageQueueOverflowWarningLogged)
+        {
+            messageQueueOverflowWarningLogged = true;
+            Debug.LogWarning($"Hot Reload: Incoming message queue exceeded {MAX_QUEUED_MESSAGES} items; oldest messages were dropped.");
+        }
+
+        bool didOverflowMainThreadActions;
+        lock (mainThreadActionsLock)
+        {
+            didOverflowMainThreadActions = mainThreadActionsOverflowed;
+            mainThreadActionsOverflowed = false;
+        }
+
+        if (didOverflowMainThreadActions && !mainThreadActionsOverflowWarningLogged)
+        {
+            mainThreadActionsOverflowWarningLogged = true;
+            Debug.LogWarning($"Hot Reload: Main-thread action queue exceeded {MAX_QUEUED_MAIN_THREAD_ACTIONS} items; oldest actions were dropped.");
+        }
+
+        #if UNITY_2019_1_OR_NEWER
+        PollRefreshCompilationCompletion();
+        #endif
+
+        bool canRefreshAssets = !isRefreshInProgress && !EditorApplication.isCompiling && !EditorApplication.isUpdating;
+        #if UNITY_2019_1_OR_NEWER
+        canRefreshAssets = canRefreshAssets && !refreshCompilationPending;
+        #endif
+
+        // Keep one coalesced refresh pending until Unity is safe to import assets.
+        if (shouldRequestRefresh && canRefreshAssets)
+        {
+            shouldRequestRefresh = false;
+            RefreshAssets();
+        }
+    }
+
+    /// <summary>
+    /// Thread function that listens for TCP connections.
+    /// Prioritizes the last successful port or current port for stability.
+    /// </summary>
+    private static void ListenerThreadFunction()
+    {
+        bool serverStarted = false;
+        List<int> portsToTry = new List<int>();
+
+        // Prioritize the current port (for reload scenarios)
+        if (currentPort > 0 && !portsToTry.Contains(currentPort))
+        {
+            portsToTry.Add(currentPort);
+        }
+
+        // Then try the last successful port
+        if (lastSuccessfulPort > 0 && !portsToTry.Contains(lastSuccessfulPort))
+        {
+            portsToTry.Add(lastSuccessfulPort);
+        }
+
+        // Finally, add all alternative ports
+        foreach (int port in ALTERNATIVE_PORTS)
+        {
+            if (portsToTry.Contains(port) == false)
+            {
+                portsToTry.Add(port);
+            }
+        }
+
+        // Try each port until we find one that works
+        foreach (int portToTry in portsToTry)
+        {
+            // If this is our preferred port (current or last successful), try harder
+            bool isPreferredPort = (portToTry == currentPort || portToTry == lastSuccessfulPort);
+            int maxAttempts = isPreferredPort ? PORT_RETRY_ATTEMPTS : 1;
+
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                if (stopRequested) return;
+                if (attempt > 0)
+                {
+                    Thread.Sleep(PORT_RETRY_DELAY_MS);
+                }
+
+                try
+                {
+                    lock (clientListLock)
+                    {
+                        if (stopRequested) return;
+                        server = new TcpListener(IPAddress.Any, portToTry);
+                        server.Start();
+                        isServerRunning = true;
+                    }
+
+                    currentPort = portToTry;
+                    lastSuccessfulPort = portToTry;
+                    // Defer EditorPrefs call to main thread
+                    EnqueueMainThreadAction(() => EditorPrefs.SetInt(lastPortPrefKey, lastSuccessfulPort));
+                    serverStarted = true;
+
+                    EnqueueMainThreadAction(() => Debug.Log($"Unity Hot Reload server listening on port {currentPort}"));
+                    break;
+                }
+                catch (SocketException ex)
+                {
+                    if (ex.ErrorCode == 10048 || ex.ErrorCode == 48 || ex.ErrorCode == 98)
+                    {
+                        if (showDebugLogs || (isPreferredPort && attempt == maxAttempts - 1))
+                        {
+                            EnqueueMainThreadAction(() => Debug.LogWarning($"Port {portToTry} is in use (attempt {attempt + 1}/{maxAttempts})"));
+                        }
+                        continue;
+                    }
+                    else
+                    {
+                        EnqueueMainThreadAction(() => Debug.LogError($"Socket error: {ex.Message} (ErrorCode: {ex.ErrorCode})"));
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    EnqueueMainThreadAction(() => Debug.LogError($"Error starting server: {ex.Message}"));
+                    return;
+                }
+            }
+
+            if (serverStarted)
+                break;
+        }
+
+        if (serverStarted == false)
+        {
+            EnqueueMainThreadAction(() => Debug.LogError("Failed to start Hot Reload server. All ports are in use."));
+            return;
+        }
+
+        RunServerLoop();
+    }
+
+    /// <summary>
+    /// Main server loop extracted to a separate method for reuse.
+    /// Handles accepting connections and cleaning up disconnected clients.
+    /// </summary>
+    private static void RunServerLoop()
+    {
+        try
+        {
+            while (!stopRequested && isServerRunning)
+            {
+                try
+                {
+                    // Wait for a client connection with a timeout
+                    if (server.Pending())
+                    {
+                        TcpClient client;
+                        lock (clientListLock)
+                        {
+                            if (stopRequested) break;
+                            client = server.AcceptTcpClient();
+                            client.SendTimeout = WORKER_STOP_TIMEOUT_MS;
+                            connectedClients.Add(client);
+                            clientThreads.RemoveAll(thread => !thread.IsAlive);
+                            Thread clientThread = new Thread(() => HandleClient(client));
+                            clientThread.IsBackground = true;
+                            clientThreads.Add(clientThread);
+                            clientThread.Start();
+                        }
+
+                        // Only log connection if debug logs are enabled
+                        if (showDebugLogs)
+                        {
+                            EnqueueMainThreadAction(() => Debug.Log($"VS Code connected to Unity Hot Reload server on port {currentPort}"));
+                        }
+
+                    }
+                    else
+                    {
+                        // No pending connections, sleep briefly to avoid busy waiting
+                        Thread.Sleep(100);
+                    }
+
+                    // Clean up disconnected clients
+                    lock (clientListLock)
+                    {
+                        int removedCount = connectedClients.RemoveAll(c => c.Connected == false);
+                        if (removedCount > 0 && showDebugLogs)
+                        {
+                            EnqueueMainThreadAction(() => Debug.Log($"Cleaned up {removedCount} disconnected client(s)"));
+                        }
+                    }
+                }
+                catch (SocketException ex)
+                {
+                    if (isServerRunning == false)
+                    {
+                        // Server is shutting down, this is expected
+                        break;
+                    }
+
+                    EnqueueMainThreadAction(() => Debug.LogError($"Socket error while accepting client: {ex.Message}"));
+                }
+            }
+        }
+        catch (ThreadAbortException)
+        {
+            if (showDebugLogs)
+            {
+                EnqueueMainThreadAction(() => Debug.Log("Unity Hot Reload server thread aborted"));
+            }
+        }
+        catch (Exception e)
+        {
+            if (isServerRunning == false)
+            {
+                // Server is shutting down, this is expected
+                if (showDebugLogs)
+                {
+                    EnqueueMainThreadAction(() => Debug.Log("Unity Hot Reload server stopped"));
+                }
+            }
+            else
+            {
+                EnqueueMainThreadAction(() => Debug.LogError($"Unity Hot Reload server error: {e.Message}"));
+            }
+        }
+        finally
+        {
+            // Ensure server is stopped
+            if (server != null)
+            {
+                try
+                {
+                    server.Stop();
+                    server = null;
+                }
+                catch (Exception)
+                {
+                    // Ignore errors during cleanup
+                }
+            }
+            isServerRunning = false;
+        }
+    }
+
+    /// <summary>
+    /// Handles communication with a single client connection.
+    /// Accumulates TCP data and splits on newline delimiters to handle
+    /// message fragmentation and batching correctly.
+    /// </summary>
+    /// <param name="client">The connected TCP client</param>
+    private static void HandleClient(TcpClient client)
+    {
+        try
+        {
+            byte[] buffer = new byte[4096];
+            NetworkStream stream = client.GetStream();
+            StringBuilder lineBuffer = new StringBuilder();
+
+            while (!stopRequested && client.Connected && isServerRunning)
+            {
+                if (stream.DataAvailable)
+                {
+                    int bytesRead = stream.Read(buffer, 0, buffer.Length);
+                    if (bytesRead > 0)
+                    {
+                        lineBuffer.Append(Encoding.UTF8.GetString(buffer, 0, bytesRead));
+
+                        // Split on newline -- each complete line is one message
+                        string accumulated = lineBuffer.ToString();
+                        int newlineIdx;
+                        while ((newlineIdx = accumulated.IndexOf('\n')) >= 0)
+                        {
+                            string line = accumulated.Substring(0, newlineIdx).Trim();
+                            accumulated = accumulated.Substring(newlineIdx + 1);
+
+                            if (string.IsNullOrEmpty(line) == false)
+                            {
+                                if (line.Length > MAX_PENDING_LINE_CHARACTERS)
+                                {
+                                    lock (messageQueue)
+                                    {
+                                        messageQueueOverflowed = true;
+                                    }
+                                    continue;
+                                }
+
+                                if (TryHandleImmediateClientMessage(line, stream))
+                                {
+                                    continue;
+                                }
+
+                                EnqueueMessage(line);
+                            }
+                        }
+
+                        // Keep any incomplete data for the next read
+                        lineBuffer.Clear();
+                        if (accumulated.Length > 0)
+                        {
+                            lineBuffer.Append(accumulated);
+                            if (lineBuffer.Length > MAX_PENDING_LINE_CHARACTERS)
+                            {
+                                lock (messageQueue)
+                                {
+                                    messageQueueOverflowed = true;
+                                }
+
+                                throw new InvalidOperationException("Incoming hot reload message exceeded the maximum supported size.");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Connection closed by client
+                        break;
+                    }
+                }
+                else
+                {
+                    // No data available, sleep briefly
+                    Thread.Sleep(50);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            if (showDebugLogs && isServerRunning)
+            {
+                EnqueueMainThreadAction(() => Debug.LogWarning($"Client handler error: {ex.Message}"));
+            }
+        }
+        finally
+        {
+            // Remove client from list and close connection
+            lock (clientListLock)
+            {
+                connectedClients.Remove(client);
+            }
+
+            try
+            {
+                client.Close();
+            }
+            catch (Exception ex) { EnqueueMainThreadAction(() => Debug.LogWarning($"(HotReloadHandler - HandleClient) Client close failed: {ex.Message}")); }
+
+            if (showDebugLogs)
+            {
+                EnqueueMainThreadAction(() => Debug.Log("Client disconnected from Unity Hot Reload server"));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Handles protocol messages that do not need Unity main-thread APIs.
+    /// Keeping ping/pong on the socket thread makes attach probes reliable even
+    /// while the editor is importing, repainting, or processing queued work.
+    /// </summary>
+    private static bool TryHandleImmediateClientMessage(string message, NetworkStream stream)
+    {
+        if (message.Contains("{") == false || message.Contains("}") == false)
+        {
+            return false;
+        }
+
+        string command = ExtractJsonStringValue(message, "command");
+        if (command != "ping")
+        {
+            return false;
+        }
+
+        byte[] data = Encoding.UTF8.GetBytes("{\"command\":\"pong\"}\n");
+        stream.Write(data, 0, data.Length);
+        return true;
+    }
+
+    /// <summary>
+    /// Processes messages received from the TCP client.
+    /// Routes to IL patching, MCP tool dispatch, debug port, and refresh.
+    /// </summary>
+    private static void ProcessMessage(string message)
+    {
+        try
+        {
+            if (message.Contains("{") && message.Contains("}"))
+            {
+                string command = ExtractJsonStringValue(message, "command");
+                if (string.IsNullOrEmpty(command))
+                {
+                    shouldRequestRefresh = true;
+                    return;
+                }
+
+                switch (command)
+                {
+                    case "refresh":
+                        string[] changedFiles = ExtractFilePaths(message);
+                        HandleRefresh(changedFiles);
+                        break;
+                    case "ping":
+                        BroadcastToClients("{\"command\":\"pong\"}");
+                        break;
+                    case "getDebugPort":
+                        UnityCursorToolkit.Debugging.DebugBridge.BroadcastDebugPort();
+                        break;
+                    case "mcpToolCall":
+                        RouteMcpToolCall(message);
+                        break;
+                    default:
+                        if (showDebugLogs)
+                        {
+                            Debug.LogWarning($"(HotReloadHandler - ProcessMessage) Unknown command: {command}");
+                        }
+                        break;
+                }
+            }
+            else
+            {
+                shouldRequestRefresh = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"(HotReloadHandler - ProcessMessage) Error: {ex.Message}");
+            shouldRequestRefresh = true;
+        }
+    }
+
+    /// <summary>
+    /// Routes an mcpToolCall message to MCPBridge for dispatch.
+    /// Extracts toolName and args from the JSON payload.
+    /// </summary>
+    private static void RouteMcpToolCall(string message)
+    {
+        string toolName = ExtractJsonStringValue(message, "toolName");
+        if (string.IsNullOrEmpty(toolName))
+        {
+            Debug.LogWarning("(HotReloadHandler - RouteMcpToolCall) Missing toolName in mcpToolCall");
+            return;
+        }
+
+        string argsJson = ExtractJsonObject(message, "args");
+        string requestId = ExtractJsonStringValue(message, "_requestId");
+        if (showDebugLogs)
+        {
+            Debug.Log($"(HotReloadHandler - RouteMcpToolCall) Routing tool: {toolName}");
+        }
+        UnityCursorToolkit.MCP.MCPBridge.HandleToolCall(toolName, argsJson ?? "{}", requestId);
+    }
+
+    /// <summary>
+    /// Extracts a string value for a given key from a JSON message.
+    /// </summary>
+    private static string ExtractJsonStringValue(string json, string key)
+    {
+        string search = "\"" + key + "\"";
+        int keyIdx = json.IndexOf(search);
+        if (keyIdx < 0) return null;
+
+        int colonIdx = json.IndexOf(':', keyIdx + search.Length);
+        if (colonIdx < 0) return null;
+
+        int quoteStart = json.IndexOf('"', colonIdx + 1);
+        if (quoteStart < 0) return null;
+
+        int quoteEnd = json.IndexOf('"', quoteStart + 1);
+        if (quoteEnd < 0) return null;
+
+        return json.Substring(quoteStart + 1, quoteEnd - quoteStart - 1);
+    }
+
+    /// <summary>
+    /// Extracts a nested JSON object for a given key.
+    /// </summary>
+    private static string ExtractJsonObject(string json, string key)
+    {
+        string search = "\"" + key + "\"";
+        int keyIdx = json.IndexOf(search);
+        if (keyIdx < 0) return null;
+
+        int braceStart = json.IndexOf('{', keyIdx + search.Length);
+        if (braceStart < 0) return null;
+
+        int depth = 0;
+        for (int i = braceStart; i < json.Length; i++)
+        {
+            if (json[i] == '{') depth++;
+            else if (json[i] == '}') depth--;
+
+            if (depth == 0)
+            {
+                return json.Substring(braceStart, i - braceStart + 1);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Decides whether to IL-patch or full-refresh based on play mode and preferences.
+    /// </summary>
+    private static void HandleRefresh(string[] changedFiles)
+    {
+        bool preferILPatch = EditorPrefs.GetBool("UnityCursorToolkit_PreferILPatch", true);
+
+        if (EditorApplication.isPlaying && preferILPatch && changedFiles != null && changedFiles.Length > 0)
+        {
+            var result = UnityCursorToolkit.HotReload.ILPatcher.TryPatch(changedFiles);
+
+            if (result.ErrorCode == UnityCursorToolkit.HotReload.PatchErrorCode.CapabilityUnavailable)
+            {
+                string payload = "{\"command\":\"compilationResult\",\"success\":false,\"method\":\"ilPatch\",\"errorCode\":\"capability_unavailable\",\"capability\":\"ilPatching\",\"error\":\""
+                    + UnityCursorToolkit.AgentCommands.AgentCommandJson.Escape(result.FallbackReason) + "\"}";
+                BroadcastToClients(payload);
+                return;
+            }
+
+            if (result.Success)
+            {
+                string payload = $"{{\"command\":\"compilationResult\",\"success\":true,\"method\":\"ilPatch\",\"patchedMethods\":{result.PatchedMethodCount},\"elapsedMs\":{result.ElapsedMs}}}";
+                BroadcastToClients(payload);
+
+                if (showDebugLogs)
+                {
+                    Debug.Log($"Hot Reload: IL Patch applied — {result.PatchedMethodCount} methods in {result.ElapsedMs}ms");
+                }
+                return;
+            }
+
+            if (showDebugLogs)
+            {
+                Debug.Log($"Hot Reload: IL Patch fallback — {result.FallbackReason}");
+            }
+        }
+
+        shouldRequestRefresh = true;
+    }
+
+    /// <summary>
+    /// Extract file paths from the JSON refresh message.
+    /// </summary>
+    private static string[] ExtractFilePaths(string json)
+    {
+        int filesIdx = json.IndexOf("\"files\"");
+        if (filesIdx < 0) return null;
+
+        int arrayStart = json.IndexOf('[', filesIdx);
+        int arrayEnd = json.IndexOf(']', arrayStart);
+        if (arrayStart < 0 || arrayEnd < 0) return null;
+
+        string arrayContent = json.Substring(arrayStart + 1, arrayEnd - arrayStart - 1);
+        if (string.IsNullOrEmpty(arrayContent.Trim())) return new string[0];
+
+        var paths = new List<string>();
+        foreach (string part in arrayContent.Split(','))
+        {
+            string trimmed = part.Trim().Trim('"');
+            if (string.IsNullOrEmpty(trimmed) == false)
+            {
+                paths.Add(trimmed);
+            }
+        }
+
+        return paths.ToArray();
+    }
+
+    /// <summary>
+    /// Refreshes Unity's asset database and triggers script compilation.
+    /// Called when changes are detected from VS Code/Cursor.
+    /// </summary>
+    private static void RefreshAssets()
+    {
+        bool isRefreshBlocked = isRefreshInProgress || EditorApplication.isCompiling || EditorApplication.isUpdating;
+        #if UNITY_2019_1_OR_NEWER
+        isRefreshBlocked = isRefreshBlocked || refreshCompilationPending;
+        #endif
+
+        if (isRefreshBlocked)
+        {
+            shouldRequestRefresh = true;
+            return;
+        }
+
+        isRefreshInProgress = true;
+        try
+        {
+            Debug.Log("Hot Reload: Refreshing Unity assets...");
+
+            #if UNITY_2019_1_OR_NEWER
+            CompilationPipeline.compilationFinished -= OnCompilationFinished;
+            CompilationPipeline.compilationFinished += OnCompilationFinished;
+            refreshCompilationPending = true;
+            refreshCompilationStarted = false;
+            refreshCompilationTimeoutAt = EditorApplication.timeSinceStartup + REFRESH_COMPILE_START_TIMEOUT_SECONDS;
+            #endif
+
+            // Refresh imports changed scripts and starts compilation when necessary.
+            // An explicit RequestScriptCompilation here creates a redundant second pass.
+            AssetDatabase.Refresh(ImportAssetOptions.Default);
+
+            if (showDebugLogs)
+            {
+                Debug.Log("Hot Reload: Refresh complete");
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Hot Reload refresh error: {e.Message}");
+            #if UNITY_2019_1_OR_NEWER
+            refreshCompilationPending = false;
+            CompilationPipeline.compilationFinished -= OnCompilationFinished;
+            #endif
+            BroadcastToClients("{\"command\":\"compilationResult\",\"success\":false}");
+        }
+        finally
+        {
+            isRefreshInProgress = false;
+        }
+    }
+
+    #if UNITY_2019_1_OR_NEWER
+    /// <summary>
+    /// Notifies connected extension clients that compilation has begun.
+    /// Extension pauses heartbeat during compilation since Unity's main thread is blocked.
+    /// </summary>
+    private static void OnCompilationStarted(object context)
+    {
+        if (refreshCompilationPending)
+        {
+            refreshCompilationStarted = true;
+        }
+
+        BroadcastToClients("{\"command\":\"compilationStarted\"}");
+    }
+
+    private static void OnCompilationFinished(object context)
+    {
+        CompilationPipeline.compilationFinished -= OnCompilationFinished;
+        refreshCompilationPending = false;
+
+        bool _success = !EditorUtility.scriptCompilationFailed;
+        string _payload = $"{{\"command\":\"compilationResult\",\"success\":{(_success ? "true" : "false")}}}";
+
+        EnqueueMainThreadAction(() =>
+        {
+            BroadcastToClients(_payload);
+            if (showDebugLogs)
+            {
+                Debug.Log($"Hot Reload: Compilation {(_success ? "succeeded" : "failed")}");
+            }
+        });
+    }
+
+    /// <summary>
+    /// Completes refresh notifications when no script compilation was needed.
+    /// </summary>
+    private static void PollRefreshCompilationCompletion()
+    {
+        if (!refreshCompilationPending || refreshCompilationStarted || EditorApplication.isCompiling)
+        {
+            return;
+        }
+
+        if (EditorApplication.timeSinceStartup < refreshCompilationTimeoutAt)
+        {
+            return;
+        }
+
+        refreshCompilationPending = false;
+        CompilationPipeline.compilationFinished -= OnCompilationFinished;
+        BroadcastToClients("{\"command\":\"compilationResult\",\"success\":true}");
+    }
+    #endif
+
+    /// <summary>
+    /// Queues bounded work for Unity's main thread, retaining the newest actions.
+    /// </summary>
+    private static void EnqueueMainThreadAction(Action action)
+    {
+        lock (mainThreadActionsLock)
+        {
+            if (stopRequested) return;
+            if (mainThreadActions.Count >= MAX_QUEUED_MAIN_THREAD_ACTIONS)
+            {
+                mainThreadActions.Dequeue();
+                mainThreadActionsOverflowed = true;
+            }
+
+            mainThreadActions.Enqueue(action);
+        }
+    }
+
+    /// <summary>
+    /// Queues a bounded client message while enforcing both item and total character limits.
+    /// </summary>
+    private static void EnqueueMessage(string message)
+    {
+        lock (messageQueue)
+        {
+            if (stopRequested) return;
+            if (message.Length > MAX_PENDING_LINE_CHARACTERS)
+            {
+                messageQueueOverflowed = true;
+                return;
+            }
+
+            while (messageQueue.Count > 0 && (messageQueue.Count >= MAX_QUEUED_MESSAGES || queuedMessageCharacters + message.Length > MAX_QUEUED_MESSAGE_CHARACTERS))
+            {
+                string removedMessage = messageQueue.Dequeue();
+                queuedMessageCharacters -= removedMessage.Length;
+                messageQueueOverflowed = true;
+            }
+
+            if (queuedMessageCharacters + message.Length > MAX_QUEUED_MESSAGE_CHARACTERS)
+            {
+                messageQueueOverflowed = true;
+                return;
+            }
+
+            messageQueue.Enqueue(message);
+            queuedMessageCharacters += message.Length;
+        }
+    }
+
+    /// <summary>
+    /// Sends a message to all connected extension clients.
+    /// Used by other Editor scripts (e.g. ConsoleToCursor) to communicate back to the extension.
+    /// </summary>
+    public static bool BroadcastToClients(string message)
+    {
+        if (isServerRunning == false)
+            return false;
+
+        byte[] _data = Encoding.UTF8.GetBytes(message + "\n");
+        int _sent = 0;
+
+        List<TcpClient> clients;
+        lock (clientListLock)
+        {
+            clients = new List<TcpClient>(connectedClients);
+        }
+        foreach (TcpClient client in clients)
+        {
+            try
+            {
+                if (!stopRequested && client.Connected)
+                {
+                    client.GetStream().Write(_data, 0, _data.Length);
+                    _sent++;
+                }
+            }
+            catch (Exception ex)
+            {
+                if (showDebugLogs && !stopRequested)
+                {
+                    EnqueueMainThreadAction(() => Debug.LogWarning($"(HotReloadHandler - BroadcastToClients) Failed to send to client: {ex.Message}"));
+                }
+            }
+        }
+
+        return _sent > 0;
+    }
+
+    /// <summary>
+    /// Returns the current port being used by the hot reload server.
+    /// Returns -1 if the server is not running.
+    /// </summary>
+    /// <returns>The current port number or -1 if not running</returns>
+    public static int GetCurrentPort()
+    {
+        return isServerRunning ? currentPort : -1;
+    }
+
+    /// <summary>
+    /// Checks if the hot reload server is currently running.
+    /// </summary>
+    /// <returns>True if the server is running, false otherwise</returns>
+    public static bool IsServerRunning()
+    {
+        return isServerRunning;
+    }
+
+    /// <summary>
+    /// Gets the number of currently connected clients.
+    /// </summary>
+    /// <returns>The number of connected clients</returns>
+    public static int GetConnectedClientCount()
+    {
+        lock (clientListLock)
+        {
+            return connectedClients.Count;
+        }
+    }
+
+    /// <summary>
+    /// Tries to start the server on a specific port.
+    /// Returns true if successful, false otherwise.
+    /// </summary>
+    private static bool TryStartOnSpecificPort(int port)
+    {
+        try
+        {
+            if (!StopServer()) return false;
+            stopRequested = false;
+            // Create a new listener thread that will only try the specified port
+            listenerThread = new Thread(() => ListenerThreadFunctionSpecificPort(port));
+            listenerThread.IsBackground = true;
+            listenerThread.Start();
+
+            // Wait a moment to see if it started successfully
+            Thread.Sleep(100);
+
+            return isServerRunning;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Special listener thread function that only tries a specific port.
+    /// Used for reload scenarios to maintain port consistency.
+    /// </summary>
+    private static void ListenerThreadFunctionSpecificPort(int specificPort)
+    {
+        try
+        {
+            lock (clientListLock)
+            {
+                if (stopRequested) return;
+                server = new TcpListener(IPAddress.Any, specificPort);
+
+                // Try to set socket options to allow port reuse
+                try
+                {
+                    server.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+                }
+                catch (Exception ex)
+                {
+                    if (showDebugLogs)
+                    {
+                        EnqueueMainThreadAction(() => Debug.LogWarning($"Could not set ReuseAddress option: {ex.Message}"));
+                    }
+                }
+
+                server.Start();
+                isServerRunning = true;
+            }
+
+            currentPort = specificPort;
+            lastSuccessfulPort = specificPort;
+            // Defer EditorPrefs call to main thread
+            EnqueueMainThreadAction(() => EditorPrefs.SetInt(lastPortPrefKey, lastSuccessfulPort));
+            EnqueueMainThreadAction(() => Debug.Log($"Unity Hot Reload server listening on port {currentPort}"));
+            RunServerLoop();
+        }
+        catch (Exception ex)
+        {
+            if (showDebugLogs)
+            {
+                EnqueueMainThreadAction(() => Debug.LogError($"Failed to start on port {specificPort}: {ex.Message}"));
+            }
+            isServerRunning = false;
+        }
+    }
+}
+
+} // namespace UnityCursorToolkit
+
+#endif // UNITY_EDITOR
