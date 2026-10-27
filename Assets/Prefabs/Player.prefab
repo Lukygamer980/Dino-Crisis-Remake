@@ -235,22 +235,19 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerController
   locomotion: {fileID: 11400000, guid: 69edb9b19421d4ecea29db08af74e6bf, type: 2}
-  acceleration: 8
-  deceleration: 10
   turnResponse: 5
+  freeMaxTurnRate: 260
   maxMovingTurnRate: 220
+  freeTurnAcceleration: 700
   turnAcceleration: 1200
+  freeTurnOnSpotAngle: 120
   turnOnSpotAngle: 50
+  aimTurnAngle: 12
   quickTurnAngle: 80
-  maxLean: 7
+  sharpTurnSpeedShare: 0.35
   jumpSpeed: 4.6
   standingHeight: 1.7
   crouchingHeight: 1.15
-  sprintSpeed: 0
-  freeTurnOnSpotAngle: 120
-  freeMaxTurnRate: 260
-  freeTurnAcceleration: 700
-  sharpTurnSpeedShare: 0.35
   maxHealth: 100
   ammo: 15
   magazineSize: 7

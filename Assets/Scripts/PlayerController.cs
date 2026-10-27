@@ -2,58 +2,53 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Serialization;
 
-// Third-person controls: WASD or the left stick moves relative to where the camera looks, and Eve
-// turns to face where she is heading. Standing, she steps round on the spot; on the move she curves
-// and leans into the turn, and slows for a sharp one. Holding aim turns her with the camera and lets
-// her strafe; shots go to the crosshair at the center of the screen, also on the move.
-// She can crouch, jump, reload, and holster or draw the pistol; holding the trigger keeps firing.
-// Holstered she moves exactly as with the pistol down, with empty hands. Her speeds and turn rates
-// come from the LocomotionProfile that PlayerAnimatorBuilder measures from the clips, so her feet keep up.
+// Third-person controls: WASD or the left stick moves relative to where the camera looks, and she
+// turns to face where she is heading. The MocapOnline pack's root motion moves her: every frame the
+// Animator's step goes to the CharacterController, so her feet carry her exactly as far as the clips
+// step, at the pace they were recorded. PlayerController only picks the gait (walk, or run with the
+// run button), steers her toward the stick on the move, and asks the Animator to turn her on the spot
+// when she stands facing well away; the turn clips' own rotation turns her then.
+// Holding aim turns her with the camera and lets her strafe; shots go to the crosshair at the center
+// of the screen, also on the move. She can crouch, jump, reload, and holster or draw the pistol;
+// holding the trigger keeps firing. The pack only moves with the pistol in hand, so holstered she
+// stands in its MOB pose and draws as soon as she sets off.
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
 {
-    // Stances, as PlayerAnimatorBuilder lays them out in the Animator. Holstered or not, she uses the
-    // same ones; the Animator's Unarmed Arms layer empties her hands.
+    // Stances, as PlayerAnimatorBuilder lays them out in the Animator.
     const int RelaxedStance = 1, AimStance = 2, CrouchStance = 3, CrouchAimStance = 4, HurtStance = 5;
     // Jumps, as the Animator's JumpKind.
     const int JumpStand = 0, JumpRun = 1, JumpAimStand = 2, JumpAimForward = 3, JumpAimLeft = 4, JumpAimRight = 5;
-    // How long a jump winds up before she leaves the ground, and how long a reload takes; the
-    // Animator plays its clips to fit (PlayerAnimatorBuilder.JumpWindUp and ReloadTime).
-    const float JumpWindUp = 0.25f;
-    const float ReloadTime = 1.6f;
-    // When the pistol reaches her hand while drawing, and the holster while holstering (from the
-    // MocapOnline list, at 30 fps), and when each clip is done.
-    const float DrawGrabTime = 0.23f, DrawTime = 0.9f, HolsterStowTime = 0.63f, HolsterTime = 1.4f;
+    // Gaits, as the radius of PlayerAnimatorBuilder's movement blends.
+    const float WalkGait = 1f, JogGait = 2f, RunGait = 3f;
+    // When the pistol reaches her hand while drawing and the holster while holstering, standing and
+    // crouched (the frames in the MocapOnline list, at 30 fps).
+    const float DrawGrabTime = 0.23f, CrouchDrawGrabTime = 0.43f, HolsterStowTime = 0.63f, CrouchHolsterStowTime = 0.53f;
 
     [Header("Movement")]
     public LocomotionProfile locomotion;
-    // How fast the travel speed changes, in m/s². Animated first steps and stops set their own pace.
-    public float acceleration = 8f;
-    public float deceleration = 10f;
-    // How hard she turns toward where she is heading (degrees per second for each degree off), the
-    // fastest she turns on the move, and how quickly a turn can build up or ease off.
+    [Tooltip("How hard she turns toward where she is heading on the move: degrees per second for each degree off.")]
     public float turnResponse = 5f;
+    [Tooltip("The fastest she turns on the move standing up and not aiming, in degrees per second.")]
+    [FormerlySerializedAs("unarmedMaxTurnRate")] public float freeMaxTurnRate = 260f;
+    [Tooltip("The fastest she turns on the move crouched or aiming, in degrees per second.")]
     public float maxMovingTurnRate = 220f;
+    [Tooltip("How quickly a turn on the move builds up and eases off, standing up and not aiming. Lower is smoother.")]
+    [FormerlySerializedAs("unarmedTurnAcceleration")] public float freeTurnAcceleration = 700f;
     public float turnAcceleration = 1200f;
-    // Crouched and farther off than this, she turns on the spot before she sets off.
+    [Tooltip("Standing and facing farther off than this, she turns on the spot before setting off; below it she sets off at once and curves round.")]
+    [FormerlySerializedAs("unarmedTurnOnSpotAngle")] public float freeTurnOnSpotAngle = 120f;
+    [Tooltip("The same, crouched.")]
     public float turnOnSpotAngle = 50f;
-    // Aiming, with the camera this far round, she pivots a quarter turn at once.
+    [Tooltip("Aiming and standing, the camera this far off her facing turns her on the spot.")]
+    public float aimTurnAngle = 12f;
+    [Tooltip("Aiming and standing, the camera this far off her facing turns her a quarter turn at once.")]
     public float quickTurnAngle = 80f;
+    [Tooltip("In a sharp turn she slows to this share of her gait, so she curves round instead of running a wide arc.")]
+    [FormerlySerializedAs("unarmedSharpTurnSpeedShare")] [Range(0f, 1f)] public float sharpTurnSpeedShare = 0.35f;
     public float jumpSpeed = 4.6f;
     public float standingHeight = 1.7f;
     public float crouchingHeight = 1.15f;
-
-    [Header("Standing up, not aiming (pistol down or holstered)")]
-    [Tooltip("Sprint speed, in m/s. 0 sprints at the pace the Locomotion asset gives the run; faster plays the run faster so the feet keep up.")]
-    [FormerlySerializedAs("unarmedSprintSpeed")] public float sprintSpeed = 0f;
-    [Tooltip("Standing and facing farther off than this, she turns on the spot before setting off. Below it she sets off at once and curves round.")]
-    [FormerlySerializedAs("unarmedTurnOnSpotAngle")] public float freeTurnOnSpotAngle = 120f;
-    [Tooltip("The fastest she turns on the move, in degrees per second.")]
-    [FormerlySerializedAs("unarmedMaxTurnRate")] public float freeMaxTurnRate = 260f;
-    [Tooltip("How quickly a turn builds up and eases off, in degrees per second squared. Lower is smoother.")]
-    [FormerlySerializedAs("unarmedTurnAcceleration")] public float freeTurnAcceleration = 700f;
-    [Tooltip("In a sharp turn she slows to this share of her speed rather than stopping, so she curves round instead of spinning on the spot.")]
-    [FormerlySerializedAs("unarmedSharpTurnSpeedShare")] [Range(0f, 1f)] public float sharpTurnSpeedShare = 0.35f;
 
     [Header("Combat")]
     public int maxHealth = 100;
@@ -115,24 +110,24 @@ public class PlayerController : MonoBehaviour
     Vector3 knockback;
     Vector3 gunRestPosition;
 
-    // Planned travel along the ground, before a leaning curve slows it.
-    Vector3 travel;
-    float travelShare = 1f;
-    float turnRate;
-    bool turningOnSpot;
+    // What she asks the Animator for: the gait on (MoveX, MoveY) in her own frame, and whether she
+    // sets off, or turns on the spot and to which side.
+    float moveX, moveY;
     bool wantsToMove;
-    bool wasMoving;
-    bool holdTravel;
-    bool wantsToSprint;
-    bool movingForward;
-    float speedParameter;
+    bool turningOnSpot;
+    int turnSide = 1;
+    // How fast PlayerController steers her on the move, in degrees per second.
+    float turnRate;
+    // Her pace along the ground from the last animated step; a jump carries it through the air and
+    // a little way past the landing.
+    Vector3 groundVelocity, airVelocity, landingCarry;
     float idleTime;
+    int lastStance;
     float aimWeight;
     float lookWeight;
-    int aimLayer = -1, lookLayer = -1, armsLayer = -1;
-    float armsWeight;
+    int aimLayer = -1, lookLayer = -1;
 
-    float reloadTimer;
+    float reloadTimer, reloadDuration;
     bool roundsIn;
     // True while she holds the trigger and the pistol keeps firing.
     bool rapidFire;
@@ -147,9 +142,8 @@ public class PlayerController : MonoBehaviour
     float jumpTimer;
     bool airborne;
 
-    static readonly int StepTag = Animator.StringToHash("Step");
-    static readonly int IdleState = Animator.StringToHash("Idle");
-    static readonly int QuickTurnTag = Animator.StringToHash("QuickTurn");
+    static readonly int MoveTag = Animator.StringToHash("Move");
+    static readonly int TurnTag = Animator.StringToHash("Turn");
 
     LocomotionProfile Profile => locomotion != null ? locomotion : defaultProfile ??= ScriptableObject.CreateInstance<LocomotionProfile>();
     static LocomotionProfile defaultProfile;
@@ -164,11 +158,16 @@ public class PlayerController : MonoBehaviour
         if (animator != null)
         {
             rootMotion = animator.GetComponent<RootMotionRelay>();
+            if (rootMotion != null) rootMotion.Moved += OnRootMotion;
             aimLayer = animator.GetLayerIndex("Aim Offset");
             lookLayer = animator.GetLayerIndex("Look Offset");
-            armsLayer = animator.GetLayerIndex("Unarmed Arms");
         }
         SetCrouch(false);
+    }
+
+    void OnDestroy()
+    {
+        if (rootMotion != null) rootMotion.Moved -= OnRootMotion;
     }
 
     // She starts with the pistol in its holster and her hands empty.
@@ -176,13 +175,10 @@ public class PlayerController : MonoBehaviour
     {
         viewCamera = Camera.main;
         if (gunHolsterSocket != null) PutGun(gunHolsterSocket, holstered: true);
-        armsWeight = IsHolstered ? 1f : 0f;
-        if (armsLayer >= 0) animator.SetLayerWeight(armsLayer, armsWeight);
     }
 
     void Update()
     {
-        Vector3 motion = knockback;
         knockback = Vector3.MoveTowards(knockback, Vector3.zero, 12f * Time.deltaTime);
 
         GameUI.Instance.SetPrompt(null);
@@ -197,29 +193,13 @@ public class PlayerController : MonoBehaviour
         Vector3 input = Vector3.ClampMagnitude(new Vector3(stick.x, 0f, stick.y), 1f);
         Vector3 move = input.sqrMagnitude < 0.01f ? Vector3.zero : view * input;
         bool running = canAct && GameInput.Run.IsPressed();
-        // Sprinting gets her up off her knees.
+        // Running gets her up off her knees.
         if (running && IsCrouching && move != Vector3.zero) TryStandUp();
         wantsToMove = move != Vector3.zero;
-        wantsToSprint = wantsToMove && running;
-        // Letting go on the move can end in a last stride: the Animator picks it from the pace she let
-        // go at, and she keeps that pace until the stride takes over.
-        if (animator != null)
-        {
-            if (wasMoving && !wantsToMove)
-            {
-                animator.SetFloat("StopSpeed", travel.magnitude);
-                animator.SetTrigger("Stop");
-                holdTravel = true;
-            }
-            else if (wantsToMove)
-            {
-                animator.ResetTrigger("Stop");
-            }
-        }
-        wasMoving = wantsToMove;
+        // The pack only moves with the pistol in hand: setting off draws it.
+        if (wantsToMove && IsHolstered) StartDraw();
 
-        Steer(move, input.magnitude, view);
-        motion += travel * travelShare;
+        Steer(move, running, view);
 
         if (canAct)
         {
@@ -249,89 +229,127 @@ public class PlayerController : MonoBehaviour
         }
         else rapidFire = triggerHeld = false;
 
-        // The pistol pose lives in the animation once Eve is on. The primitive gun still lifts by hand.
-        if (gunModel != null && animator == null)
+        // Without an animated model (the primitive stand-in) nothing hands her a step, so she moves by hand.
+        if (animator == null || rootMotion == null)
         {
-            Vector3 raised = gunRestPosition + new Vector3(-0.04f, 0.3f, 0.2f);
-            gunModel.localPosition = Vector3.Lerp(gunModel.localPosition, IsAiming ? raised : gunRestPosition, 15f * Time.deltaTime);
+            if (gunModel != null)
+            {
+                Vector3 raised = gunRestPosition + new Vector3(-0.04f, 0.3f, 0.2f);
+                gunModel.localPosition = Vector3.Lerp(gunModel.localPosition, IsAiming ? raised : gunRestPosition, 15f * Time.deltaTime);
+            }
+            float pace = moveY > JogGait ? 4.4f : moveY > WalkGait ? 3.3f : 1.3f;
+            MoveBy(transform.TransformDirection(new Vector3(moveX, 0f, moveY)).normalized * (wantsToMove ? pace * Time.deltaTime : 0f));
         }
-
-        motion.y = Fall();
-        if (controller.enabled) controller.Move(motion * Time.deltaTime);
-        if (airborne && controller.isGrounded && verticalVelocity <= 0f) airborne = false;
         DriveAnimator();
     }
 
     // ---- Moving and turning ----
 
-    // Turns her toward where she is heading and sets how fast she travels. Free movement goes where she
-    // faces, so a turn on the move is a curve; aiming, she faces the camera and strafes.
-    void Steer(Vector3 move, float amount, Quaternion view)
+    // The Animator's step for this frame. A turn clip's own rotation turns her; on the move
+    // PlayerController steers her instead, so the circle loops only lean her.
+    void OnRootMotion(Vector3 step, Quaternion turn)
     {
-        LocomotionProfile p = Profile;
+        if (ClipTag(TurnTag)) transform.Rotate(0f, Mathf.DeltaAngle(0f, turn.eulerAngles.y), 0f);
+        MoveBy(step);
+    }
+
+    // Moves the CharacterController by a step along the ground, with gravity, a jump and any knockback.
+    void MoveBy(Vector3 step)
+    {
+        float dt = Time.deltaTime;
+        if (dt <= 0f) return;
+        step.y = 0f;
+        if (airborne || jumpTimer > 0f)
+        {
+            // The pack's jumps are in place: she keeps the pace she had when she jumped.
+            step = airVelocity * dt;
+        }
+        else
+        {
+            groundVelocity = step / dt;
+            landingCarry = Vector3.MoveTowards(landingCarry, Vector3.zero, 8f * dt);
+            step += landingCarry * dt;
+        }
+        Vector3 motion = step + knockback * dt;
+        motion.y = Fall() * dt;
+        if (controller.enabled) controller.Move(motion);
+        if (airborne && controller.isGrounded && verticalVelocity <= 0f)
+        {
+            airborne = false;
+            landingCarry = airVelocity;
+        }
+    }
+
+    // True while the base layer plays, or blends into, a state with this tag.
+    bool ClipTag(int tag)
+    {
+        if (animator == null) return false;
+        if (animator.IsInTransition(0) && animator.GetNextAnimatorStateInfo(0).tagHash == tag) return true;
+        return animator.GetCurrentAnimatorStateInfo(0).tagHash == tag;
+    }
+
+    // Picks the gait and the turn. Free movement goes where she faces, so a turn on the move is a curve;
+    // aiming, she faces the camera and strafes.
+    void Steer(Vector3 move, bool running, Quaternion view)
+    {
         float yaw = transform.eulerAngles.y;
         float targetRate = 0f;
-        Vector3 desired = Vector3.zero;
-        float speed = travel.magnitude;
-
+        moveX = moveY = 0f;
         if (IsDead)
         {
-            travel = Vector3.zero;
             turnRate = 0f;
             turningOnSpot = false;
             return;
         }
+        bool clipTurning = ClipTag(TurnTag);
 
         if (IsAiming)
         {
             float error = Mathf.DeltaAngle(yaw, view.eulerAngles.y);
-            float maxRate = speed < 0.3f ? p.maxTurnInPlaceRate : maxMovingTurnRate;
-            if (Mathf.Abs(error) > 1.5f) targetRate = Mathf.Clamp(error * turnResponse * 1.5f, -maxRate, maxRate);
-            // A quarter turn plays out at the clip's own pace, and her body follows its root.
-            if (QuickTurning())
+            if (wantsToMove)
             {
-                turnRate = rootMotion.TurnSpeed;
-                transform.Rotate(0f, turnRate * Time.deltaTime, 0f);
                 turningOnSpot = false;
-                travel = Vector3.MoveTowards(travel, Vector3.zero, deceleration * Time.deltaTime);
-                travelShare = 1f;
-                movingForward = true;
-                return;
+                targetRate = Mathf.Clamp(error * turnResponse * 1.5f, -maxMovingTurnRate, maxMovingTurnRate);
+                Vector3 local = Quaternion.Inverse(transform.rotation) * move.normalized;
+                float gait = !IsCrouching && running ? JogGait : WalkGait;
+                moveX = local.x * gait;
+                moveY = local.z * gait;
+                animator?.ResetTrigger("QuickTurn");
             }
-            if (!wantsToMove && speed < 0.3f && Mathf.Abs(error) > quickTurnAngle && animator != null && rootMotion != null)
+            else
             {
-                animator.SetInteger("TurnSide", error < 0f ? -1 : 1);
-                animator.SetTrigger("QuickTurn");
+                // Standing, the clips turn her: a quarter turn when the camera swings far round,
+                // otherwise the turn loop until she faces it.
+                turnSide = error < 0f ? -1 : 1;
+                if (!clipTurning && Mathf.Abs(error) > quickTurnAngle && animator != null && rootMotion != null)
+                {
+                    animator.SetInteger("TurnSide", turnSide);
+                    animator.SetTrigger("QuickTurn");
+                }
+                turningOnSpot = turningOnSpot ? Mathf.Abs(error) > 3f : Mathf.Abs(error) > aimTurnAngle;
             }
-            else if (animator != null) animator.ResetTrigger("QuickTurn");
-            float top = IsCrouching ? p.crouchAimWalk : wantsToSprint ? p.aimJog : p.aimWalk;
-            desired = move.normalized * (amount * top);
-            movingForward = !wantsToMove || Vector3.Dot(move.normalized, transform.forward) > 0.8f;
-            turningOnSpot = !wantsToMove && speed < 0.3f && (turningOnSpot ? Mathf.Abs(targetRate) > 4f : Mathf.Abs(targetRate) > 12f);
         }
         else
         {
-            movingForward = true;
-            // Standing up she sets off at once and curves round; only a big turn from a stand happens
-            // on the spot. Crouched, she turns on the spot sooner.
+            animator?.ResetTrigger("QuickTurn");
             bool free = !IsCrouching;
             if (wantsToMove)
             {
                 float error = Mathf.DeltaAngle(yaw, Quaternion.LookRotation(move).eulerAngles.y);
-                float onSpotAngle = free ? freeTurnOnSpotAngle : turnOnSpotAngle;
-                bool standing = speed < (free ? 0.15f : 0.4f);
-                // Standing and facing well away, she steps round first and sets off once nearly there.
-                if (standing && Mathf.Abs(error) > onSpotAngle) turningOnSpot = true;
-                else if (Mathf.Abs(error) < 20f) turningOnSpot = false;
-                if (animator != null) animator.ResetTrigger("QuickTurn");
-                float movingRate = free ? freeMaxTurnRate : maxMovingTurnRate;
-                float maxRate = turningOnSpot ? p.maxTurnInPlaceRate : Mathf.Lerp(movingRate, movingRate * 0.7f, speed / p.run);
-                targetRate = Mathf.Clamp(error * turnResponse, -maxRate, maxRate);
-                // A sharp turn slows her down, so she curves round rather than running a wide arc.
-                float sharpness = Mathf.Clamp01(1f - (Mathf.Abs(error) - 45f) / 120f);
-                if (free) sharpness = Mathf.Max(sharpness, sharpTurnSpeedShare);
-                float top = TopSpeed(p, wantsToSprint);
-                desired = turningOnSpot ? Vector3.zero : transform.forward * (amount * top * sharpness);
+                // Standing and facing well away, she steps round on the spot first and sets off once nearly there.
+                if (!ClipTag(MoveTag) && Mathf.Abs(error) > (free ? freeTurnOnSpotAngle : turnOnSpotAngle)) turningOnSpot = true;
+                else if (Mathf.Abs(error) < 30f) turningOnSpot = false;
+                turnSide = error < 0f ? -1 : 1;
+                if (!turningOnSpot)
+                {
+                    float maxRate = free ? freeMaxTurnRate : maxMovingTurnRate;
+                    targetRate = Mathf.Clamp(error * turnResponse, -maxRate, maxRate);
+                    float gait = IsCrouching ? WalkGait : !running ? WalkGait : Status == "DANGER" ? JogGait : RunGait;
+                    // A sharp turn slows her, so she curves round rather than running a wide arc.
+                    float sharpness = Mathf.Clamp01(1f - (Mathf.Abs(error) - 45f) / 120f);
+                    if (free) sharpness = Mathf.Max(sharpness, sharpTurnSpeedShare);
+                    moveY = Mathf.Max(WalkGait, gait * sharpness);
+                }
             }
             else
             {
@@ -339,88 +357,11 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        // Turns build up and ease off rather than snapping.
-        float turnEase = !IsAiming && !IsCrouching ? freeTurnAcceleration : turnAcceleration;
-        turnRate = Mathf.MoveTowards(turnRate, targetRate, turnEase * Time.deltaTime);
-        if (!wantsToMove && !IsAiming) turnRate = Mathf.MoveTowards(turnRate, 0f, turnAcceleration * Time.deltaTime);
+        // The clip turns her on the spot; on the move, turns build up and ease off rather than snapping.
+        if (clipTurning || turningOnSpot || !wantsToMove) targetRate = 0f;
+        float ease = !IsAiming && !IsCrouching ? freeTurnAcceleration : turnAcceleration;
+        turnRate = Mathf.MoveTowards(turnRate, targetRate, ease * Time.deltaTime);
         transform.Rotate(0f, turnRate * Time.deltaTime, 0f);
-        if (!IsAiming && desired != Vector3.zero) desired = transform.forward * desired.magnitude;
-
-        if (AnimatedStep(out float stepSpeed))
-        {
-            travel = transform.forward * stepSpeed;
-        }
-        else if (holdTravel)
-        {
-            holdTravel = false;
-        }
-        else
-        {
-            float rate = desired.sqrMagnitude >= travel.sqrMagnitude ? acceleration : deceleration;
-            travel = Vector3.MoveTowards(travel, desired, rate * Time.deltaTime);
-            // Free movement keeps going where she faces while she slows.
-            if (!IsAiming) travel = transform.forward * travel.magnitude;
-        }
-        travelShare = CurveShare(p);
-    }
-
-    float TopSpeed(LocomotionProfile p, bool sprint)
-    {
-        if (IsCrouching) return p.crouchWalk;
-        if (Status == "DANGER") return sprint ? p.hurtRun : p.hurtWalk;
-        return sprint ? (sprintSpeed > 0f ? sprintSpeed : p.run) : p.walk;
-    }
-
-    // In a curve that a clip leans through, she keeps only the share of her speed that the clip's
-    // tighter path covers, so her feet don't skate. Elsewhere she keeps it all and leans by hand.
-    float CurveShare(LocomotionProfile p)
-    {
-        LocomotionProfile.LeanTurn curve = default;
-        float weight = 0f;
-        float speed = travel.magnitude;
-        int stance = Stance();
-        if (stance == RelaxedStance && speed > p.jog)
-        {
-            curve = p.runTurn;
-            curve.rate *= speed / p.run;
-            weight = Mathf.Clamp01((speed - p.jog) / Mathf.Max(0.01f, p.run - p.jog) * 2f);
-        }
-        else if (stance == AimStance && speed > 0.3f)
-        {
-            float t = Mathf.InverseLerp(p.aimWalk, p.aimJog, speed);
-            curve.rate = Mathf.Lerp(p.aimWalkTurn.rate, p.aimJogTurn.rate, t);
-            curve.speedShare = Mathf.Lerp(p.aimWalkTurn.speedShare, p.aimJogTurn.speedShare, t);
-            weight = Mathf.Clamp01(Vector3.Dot(travel / speed, transform.forward));
-        }
-        if (weight <= 0f || curve.rate <= 0f) return 1f;
-        float leaning = Mathf.Clamp01(Mathf.Abs(turnRate) / curve.rate) * weight;
-        return 1f - leaning * (1f - curve.speedShare);
-    }
-
-    // True while an animated step (a first step or a stop) sets her pace, with that pace. While the
-    // Animator blends into one she keeps her speed, or stays put if she was standing: the blend's root
-    // motion reports a lurch the feet don't make.
-    bool AnimatedStep(out float speed)
-    {
-        speed = 0f;
-        if (animator == null || rootMotion == null) return false;
-        if (animator.IsInTransition(0))
-        {
-            if (animator.GetNextAnimatorStateInfo(0).tagHash != StepTag) return false;
-            speed = animator.GetCurrentAnimatorStateInfo(0).shortNameHash == IdleState ? 0f : travel.magnitude;
-            return true;
-        }
-        if (animator.GetCurrentAnimatorStateInfo(0).tagHash != StepTag) return false;
-        speed = rootMotion.Speed;
-        return true;
-    }
-
-    // True while a quarter turn plays, or the Animator blends into one.
-    bool QuickTurning()
-    {
-        if (animator == null || rootMotion == null) return false;
-        if (animator.IsInTransition(0)) return animator.GetNextAnimatorStateInfo(0).tagHash == QuickTurnTag;
-        return animator.GetCurrentAnimatorStateInfo(0).tagHash == QuickTurnTag;
     }
 
     // ---- Crouching and jumping ----
@@ -466,12 +407,11 @@ public class PlayerController : MonoBehaviour
         int kind = JumpStand;
         if (IsAiming)
         {
-            Vector3 local = transform.InverseTransformDirection(travel);
-            if (travel.magnitude < 0.4f || local.z < -Mathf.Abs(local.x)) kind = JumpAimStand;
-            else if (Mathf.Abs(local.x) > local.z) kind = local.x < 0f ? JumpAimLeft : JumpAimRight;
+            if (!wantsToMove || moveY < -Mathf.Abs(moveX)) kind = JumpAimStand;
+            else if (Mathf.Abs(moveX) > moveY) kind = moveX < 0f ? JumpAimLeft : JumpAimRight;
             else kind = JumpAimForward;
         }
-        else if (travel.magnitude > 2.5f)
+        else if (moveY > JogGait && groundVelocity.magnitude > 2.5f)
         {
             kind = JumpRun;
         }
@@ -480,7 +420,9 @@ public class PlayerController : MonoBehaviour
             animator.SetInteger("JumpKind", kind);
             animator.SetTrigger("Jump");
         }
-        jumpTimer = JumpWindUp;
+        float[] windUps = Profile.jumpWindUps;
+        jumpTimer = windUps != null && kind < windUps.Length ? windUps[kind] : 0.3f;
+        airVelocity = groundVelocity;
     }
 
     // Gravity, and the take-off once a jump has wound up.
@@ -508,7 +450,7 @@ public class PlayerController : MonoBehaviour
         {
             reloadTimer -= Time.deltaTime;
             // The new magazine is in three quarters of the way through.
-            if (!roundsIn && reloadTimer <= ReloadTime * 0.25f)
+            if (!roundsIn && reloadTimer <= reloadDuration * 0.25f)
             {
                 roundsIn = true;
                 int take = Mathf.Min(magazineSize - Loaded, ammo);
@@ -520,15 +462,16 @@ public class PlayerController : MonoBehaviour
         if (weaponAction != WeaponAction.None)
         {
             weaponTimer += Time.deltaTime;
+            LocomotionProfile p = Profile;
             if (weaponAction == WeaponAction.Drawing)
             {
-                if (IsHolstered && weaponTimer >= DrawGrabTime) PutGun(gunHandSocket, holstered: false);
-                if (weaponTimer >= DrawTime) weaponAction = WeaponAction.None;
+                if (IsHolstered && weaponTimer >= (IsCrouching ? CrouchDrawGrabTime : DrawGrabTime)) PutGun(gunHandSocket, holstered: false);
+                if (weaponTimer >= p.drawTime * 0.9f) weaponAction = WeaponAction.None;
             }
             else
             {
-                if (!IsHolstered && weaponTimer >= HolsterStowTime) PutGun(gunHolsterSocket, holstered: true);
-                if (weaponTimer >= HolsterTime) weaponAction = WeaponAction.None;
+                if (!IsHolstered && weaponTimer >= (IsCrouching ? CrouchHolsterStowTime : HolsterStowTime)) PutGun(gunHolsterSocket, holstered: true);
+                if (weaponTimer >= p.holsterTime * 0.95f) weaponAction = WeaponAction.None;
             }
         }
 
@@ -570,7 +513,8 @@ public class PlayerController : MonoBehaviour
     bool TryReload()
     {
         if (IsHolstered || weaponAction != WeaponAction.None || IsReloading || Loaded >= magazineSize || ammo <= 0 || IsDead) return false;
-        reloadTimer = ReloadTime;
+        reloadDuration = IsCrouching ? Profile.crouchReloadTime : Profile.reloadTime;
+        reloadTimer = reloadDuration;
         roundsIn = false;
         Play(reloadSound);
         if (animator != null) animator.SetTrigger("Reload");
@@ -586,9 +530,10 @@ public class PlayerController : MonoBehaviour
         if (animator != null) animator.SetTrigger("Draw");
     }
 
+    // She holsters only standing still: the pack has no movement without the pistol in hand.
     void StartHolster()
     {
-        if (IsHolstered || weaponAction != WeaponAction.None || IsReloading || gunHolsterSocket == null || IsDead) return;
+        if (IsHolstered || weaponAction != WeaponAction.None || IsReloading || gunHolsterSocket == null || IsDead || wantsToMove) return;
         weaponAction = WeaponAction.Holstering;
         weaponTimer = 0f;
         if (animator != null) animator.SetTrigger("Holster");
@@ -612,38 +557,28 @@ public class PlayerController : MonoBehaviour
         return Status == "DANGER" ? HurtStance : RelaxedStance;
     }
 
-    // Speed and Strafe are metres per second along her facing and to her right; in a leaning curve
-    // Speed is the straight pace the curve was slowed from, so the blend stays in the same gait. Free
-    // movement turns the body to face the step, so it only steps back or aside when something pushes
-    // her off her facing, like a wall she slides along.
-    // Moving, Sprint and Forward are what the player asks for: they pick first steps, stops and starts.
+    // MoveX and MoveY are the gait she asks for in her own frame (walk 1, jog 2, run 3), eased, and
+    // Turn how hard she leans into a curve. Moving and TurnInPlace pick setting off, stopping and
+    // turning on the spot.
     void DriveAnimator()
     {
         if (animator == null) return;
-        Vector3 velocity = controller.velocity;
-        velocity.y = 0f;
-        float share = Mathf.Max(0.05f, travelShare);
+        float dt = Time.deltaTime;
         int stance = Stance();
-        bool strafing = stance == AimStance || stance == CrouchAimStance;
-        // Running into a wall stops her at once; the gait eases down rather than snapping to a stand.
-        float speed = Vector3.Dot(velocity, transform.forward) / share;
-        speedParameter = speed > speedParameter || strafing ? speed : Mathf.MoveTowards(speedParameter, speed, 25f * Time.deltaTime);
-        animator.SetFloat("Speed", speedParameter);
-        // The run sits at its own pace in the blend; a faster sprint plays the state faster.
         LocomotionProfile p = Profile;
-        animator.SetFloat("MoveScale", stance == RelaxedStance && speedParameter > p.run ? speedParameter / p.run : 1f);
-        animator.SetFloat("Strafe", Vector3.Dot(velocity, transform.right));
-        animator.SetFloat("Travel", travel.magnitude);
-        animator.SetFloat("TurnRate", turnRate);
+        animator.SetFloat("MoveX", moveX, 0.1f, dt);
+        animator.SetFloat("MoveY", moveY, 0.15f, dt);
+        // Steering as fast as the pack's circle loops turn leans her fully into the curve.
+        float leanRate = stance == AimStance ? Mathf.Lerp(p.aimWalkLeanRate, p.aimJogLeanRate, Mathf.Clamp01(moveY - WalkGait)) : p.runLeanRate;
+        animator.SetFloat("Turn", Mathf.Clamp(turnRate / Mathf.Max(1f, leanRate), -1f, 1f), 0.2f, dt);
         animator.SetInteger("Stance", stance);
         animator.SetBool("IsAiming", IsAiming);
-        animator.SetBool("Danger", Status == "DANGER");
-        animator.SetBool("Moving", wantsToMove);
-        animator.SetBool("Sprint", wantsToSprint);
-        animator.SetBool("Forward", movingForward);
+        animator.SetBool("Moving", wantsToMove && !turningOnSpot);
         animator.SetBool("TurnInPlace", turningOnSpot);
+        animator.SetInteger("TurnSide", turnSide);
         animator.SetBool("Grounded", !airborne);
         animator.SetBool("RapidFire", rapidFire);
+        animator.SetBool("Unarmed", IsHolstered);
         animator.SetFloat("CrouchBlend", CrouchAmount);
 
         // Where the camera looks: up and down for the pistol or the head, and how far the body still
@@ -658,13 +593,10 @@ public class PlayerController : MonoBehaviour
         if (aimLayer >= 0) animator.SetLayerWeight(aimLayer, aimWeight);
         if (lookLayer >= 0) animator.SetLayerWeight(lookLayer, lookWeight * 0.7f);
 
-        // Holstered, the arms layer gives her empty hands; drawing or holstering, the upper body takes over.
-        armsWeight = Mathf.MoveTowards(armsWeight, IsHolstered && weaponAction == WeaponAction.None ? 1f : 0f, 6f * Time.deltaTime);
-        if (armsLayer >= 0) animator.SetLayerWeight(armsLayer, armsWeight);
-
-        // Standing still a while, she looks around.
-        bool still = (stance == RelaxedStance || stance == AimStance) && !wantsToMove && !turningOnSpot && travel.sqrMagnitude < 0.01f && !IsReloading && weaponAction == WeaponAction.None;
+        // Standing still a while with the pistol in hand, she looks around; the wait starts over in a new stance.
+        bool still = (stance == RelaxedStance || stance == AimStance) && stance == lastStance && !wantsToMove && !turningOnSpot && !IsHolstered && !IsReloading && weaponAction == WeaponAction.None;
         idleTime = still ? idleTime + Time.deltaTime : 0f;
+        lastStance = stance;
         animator.SetFloat("IdleTime", idleTime);
     }
 
@@ -855,7 +787,7 @@ public class PlayerController : MonoBehaviour
         transform.SetPositionAndRotation(position, rotation);
         controller.enabled = true;
         knockback = Vector3.zero;
-        travel = Vector3.zero;
+        groundVelocity = airVelocity = landingCarry = Vector3.zero;
         turnRate = 0f;
         turningOnSpot = false;
         verticalVelocity = 0f;

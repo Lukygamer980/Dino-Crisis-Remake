@@ -12,24 +12,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d94d2a7e357df48d981489914b70136d, type: 3}
   m_Name: Eve Locomotion
   m_EditorClassIdentifier: Assembly-CSharp::LocomotionProfile
-  walk: 1.232166
-  jog: 3.360111
-  run: 4.4
-  aimWalk: 1.2565721
-  aimJog: 3.2168756
-  crouchWalk: 1.0010165
-  crouchAimWalk: 1.0018272
-  hurtWalk: 1.232166
-  hurtRun: 3.360111
   rapidFireInterval: 0.26666668
-  turnInPlaceRate: 67.50002
-  maxTurnInPlaceRate: 200
-  runTurn:
-    rate: 113.13446
-    speedShare: 0.44398224
-  aimWalkTurn:
-    rate: 37.71431
-    speedShare: 0.7771672
-  aimJogTurn:
-    rate: 95.7144
-    speedShare: 0.5662053
+  reloadTime: 2
+  crouchReloadTime: 1.6666667
+  drawTime: 1
+  holsterTime: 1.4666667
+  jumpWindUps:
+  - 0.475
+  - 0.475
+  - 0.475
+  - 0.38000003
+  - 0.475
+  - 0.475
+  turnInPlaceRate: 135.00005
+  runLeanRate: 116.666626
+  aimWalkLeanRate: 37.71431
+  aimJogLeanRate: 95.7144

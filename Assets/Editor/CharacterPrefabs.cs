@@ -169,8 +169,8 @@ public static class CharacterPrefabs
 
         Animator animator = model.GetComponentInChildren<Animator>();
         animator.runtimeAnimatorController = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(PlayerAnimatorBuilder.ControllerPath);
-        // Root motion is on only so RootMotionRelay can read how fast the animated steps go.
-        // The relay keeps the model in place; PlayerController moves the body.
+        // The pack's root motion moves her: RootMotionRelay keeps the model in place and hands each
+        // animated step to PlayerController, which moves the CharacterController by it.
         animator.applyRootMotion = true;
         animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
         if (animator.GetComponent<RootMotionRelay>() == null) animator.gameObject.AddComponent<RootMotionRelay>();
