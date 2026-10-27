@@ -136,8 +136,9 @@ public class PlayerController : MonoBehaviour
     bool roundsIn;
     // True while she holds the trigger and the pistol keeps firing.
     bool rapidFire;
-    // A trigger press the game took, until it is let go, and how many rounds it has fired. A press
-    // during the cooldown waits for it; the first round of a press is a single shot, the rest rapid
+    // A trigger press the game took, and how many rounds it has fired. A press that hasn't fired yet
+    // (a tap during the cooldown, or one let go within the same frame) waits for its shot; after that
+    // it lasts while the trigger is held. The first round of a press is a single shot, the rest rapid
     // fire. The click that hands the mouse to the game is never taken, so it never fires.
     bool triggerHeld;
     int pressShots;
@@ -231,13 +232,16 @@ public class PlayerController : MonoBehaviour
                 triggerHeld = true;
                 pressShots = 0;
             }
-            if (!held) triggerHeld = false;
+            if (!held && pressShots > 0) triggerHeld = false;
             if (triggerHeld && Time.time >= nextShotTime)
             {
+                if (pressShots == 0)
+                {
+                    triggerHeld = PullTrigger(rapid: false);
+                    if (triggerHeld) pressShots = 1;
+                }
                 // Held down after a shot, the pistol keeps firing at the pace of the continuous-fire clip.
-                if (pressShots == 0) triggerHeld = PullTrigger(rapid: false);
-                else if (CanFire && Loaded > 0) PullTrigger(rapid: true);
-                if (triggerHeld) pressShots++;
+                else if (CanFire && Loaded > 0 && PullTrigger(rapid: true)) pressShots++;
             }
             if (!triggerHeld || pressShots < 2 || !CanFire || Loaded <= 0) rapidFire = false;
             if (GameInput.Jump.WasPressedThisFrame()) TryJump();
