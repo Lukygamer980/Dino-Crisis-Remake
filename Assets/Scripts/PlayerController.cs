@@ -136,9 +136,11 @@ public class PlayerController : MonoBehaviour
     bool roundsIn;
     // True while she holds the trigger and the pistol keeps firing.
     bool rapidFire;
-    // True from a trigger press that fired a round until the trigger is let go: only such a press
-    // goes on into rapid fire, so the click that hands the mouse to the game never fires.
+    // A trigger press the game took, until it is let go, and how many rounds it has fired. A press
+    // during the cooldown waits for it; the first round of a press is a single shot, the rest rapid
+    // fire. The click that hands the mouse to the game is never taken, so it never fires.
     bool triggerHeld;
+    int pressShots;
     WeaponAction weaponAction;
     float weaponTimer;
     float jumpTimer;
@@ -224,11 +226,20 @@ public class PlayerController : MonoBehaviour
             bool mouseOk = Cursor.lockState == CursorLockMode.Locked || !GameInput.FromMouse(GameInput.Fire);
             bool fire = GameInput.Fire.WasPressedThisFrame() && mouseOk;
             bool held = GameInput.Fire.IsPressed() && mouseOk;
+            if (fire)
+            {
+                triggerHeld = true;
+                pressShots = 0;
+            }
             if (!held) triggerHeld = false;
-            if (fire && Time.time >= nextShotTime) triggerHeld = PullTrigger(rapid: false);
-            // Held down after a shot, the pistol keeps firing at the pace of the continuous-fire clip.
-            else if (triggerHeld && held && Time.time >= nextShotTime && CanFire && Loaded > 0) PullTrigger(rapid: true);
-            if (!triggerHeld || !CanFire || Loaded <= 0) rapidFire = false;
+            if (triggerHeld && Time.time >= nextShotTime)
+            {
+                // Held down after a shot, the pistol keeps firing at the pace of the continuous-fire clip.
+                if (pressShots == 0) triggerHeld = PullTrigger(rapid: false);
+                else if (CanFire && Loaded > 0) PullTrigger(rapid: true);
+                if (triggerHeld) pressShots++;
+            }
+            if (!triggerHeld || pressShots < 2 || !CanFire || Loaded <= 0) rapidFire = false;
             if (GameInput.Jump.WasPressedThisFrame()) TryJump();
             if (!IsAiming) UpdateInteraction();
         }
