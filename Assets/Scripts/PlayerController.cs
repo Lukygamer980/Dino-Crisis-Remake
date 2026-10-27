@@ -155,7 +155,7 @@ public class PlayerController : MonoBehaviour
     float stopWait;
     float heldMoveY;
     bool wasMoving;
-    static readonly HashSet<int> StopStates = new() { Animator.StringToHash("Walk Stop"), Animator.StringToHash("Jog Stop"), Animator.StringToHash("Run Stop"), Animator.StringToHash("Stop") };
+    static readonly int StopTag = Animator.StringToHash("Stop");
 
     void Awake()
     {
@@ -172,6 +172,7 @@ public class PlayerController : MonoBehaviour
             lookLayer = animator.GetLayerIndex("Look Offset");
         }
         SetCrouch(false);
+        if (movement == null) Debug.LogWarning("PlayerController has no Player Movement asset; it moves on the defaults. Rebuild the character prefabs.", this);
     }
 
     void OnDestroy()
@@ -309,6 +310,7 @@ public class PlayerController : MonoBehaviour
             return;
         }
         bool clipTurning = ClipTag(TurnTag);
+        if (IsAiming) stopWait = 0f;
 
         if (IsAiming)
         {
@@ -351,7 +353,7 @@ public class PlayerController : MonoBehaviour
                 float error = Mathf.DeltaAngle(yaw, Quaternion.LookRotation(move).eulerAngles.y);
                 turnSide = error < 0f ? -1 : 1;
                 bool onTheMove = ClipTag(MoveTag);
-                // Holstered and standing, a turn of more than unarmedQuickTurnMax is stepped round on the
+                // Holstered and standing, a turn of more than quarterTurnMax (Player Movement) is stepped round on the
                 // spot, since two quarter turns would take seconds.
                 if (unarmed && !onTheMove && Mathf.Abs(error) > ms.quarterTurnMax) turningOnSpot = true;
                 else if (unarmed && !turningOnSpot && !clipTurning && animator != null && rootMotion != null
@@ -385,14 +387,17 @@ public class PlayerController : MonoBehaviour
                 // the same gait until the Animator takes the stop, at most one cycle.
                 if (wasMoving && HasStopClip(Stance(), gait) && ms.For(gait).stopClip && ms.For(gait).stopOnFoot)
                 {
-                    stopWait = gait > 0 && gait <= Profile.gaitCycles.Length ? Profile.gaitCycles[IsCrouching ? 0 : gait - 1] : 1f;
-                    heldMoveY = Mathf.Max(lastMoveY, WalkGait);
+                    float[] cycles = Profile.gaitCycles;
+                    int index = IsCrouching ? cycles.Length - 1 : gait - 1;
+                    float cycle = index >= 0 && index < cycles.Length ? cycles[index] : 1.2f;
+                    stopWait = cycle / Mathf.Max(0.1f, ms.For(gait).playbackSpeed) + 0.05f;
+                    // Above the stand fade's threshold, at the pace she walked.
+                    heldMoveY = Mathf.Max(lastMoveY, 0.35f);
                 }
                 if (stopWait > 0f && animator != null)
                 {
                     stopWait -= Time.deltaTime;
-                    if (StopStates.Contains(animator.GetCurrentAnimatorStateInfo(0).shortNameHash) || (animator.IsInTransition(0) && StopStates.Contains(animator.GetNextAnimatorStateInfo(0).shortNameHash)))
-                        stopWait = 0f;
+                    if (ClipTag(StopTag)) stopWait = 0f;
                     else moveY = heldMoveY;
                 }
             }

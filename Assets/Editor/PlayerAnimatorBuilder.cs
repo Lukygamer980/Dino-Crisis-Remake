@@ -396,6 +396,9 @@ public static class PlayerAnimatorBuilder
             // Unity's Foot IK puts the feet where the clip's flat-footed actor put his; on heels that
             // bends the ankles, so it is a choice in the Player Character asset.
             foreach (AnimatorState state in s.all) state.iKOnFeet = setup.stateFootIK;
+            // PlayerController holds the gait until a stop begins.
+            if (s.stop != null) s.stop.tag = "Stop";
+            if (s.stops != null) foreach (AnimatorState stop in s.stops) stop.tag = "Stop";
             // PlayerController starts the wait for the next look around once one begins.
             foreach (AnimatorState look in new[] { s.fidget, s.fidgetAlt }) if (look != null) look.tag = "Fidget";
         }
@@ -609,7 +612,7 @@ public static class PlayerAnimatorBuilder
         Motion unarmedLook = Tree1D("Unarmed Look", "CrouchBlend", (UnarmedLook("Stand_Relaxed"), 0f, 1f, 0f), (UnarmedLook("Crouch"), 1f, 1f, 0f));
         AddLayer("Look Offset", Tree1D("Look Offset", "UnarmedBlend", (pistolLook, 0f, 1f, 0f), (unarmedLook, 1f, 1f, 0f)), additive: true);
 
-        WriteProfile(upper, windUps, (runCurveLeft, runCurveRight), (aimWalkCurveLeft, aimWalkCurveRight), (aimJogCurveLeft, aimJogCurveRight), mWalkCurve, mJogCurve, mRunCurve);
+        WriteProfile(upper, windUps, (runCurveLeft, runCurveRight), (aimWalkCurveLeft, aimWalkCurveRight), (aimJogCurveLeft, aimJogCurveRight), mWalkCurve, mJogCurve, mRunCurve, Mathf.Max(uc.gaitLoops[0].length, crouchWalk.length));
 
         // HomebrewIK places the feet in OnAnimatorIK, which only runs on a layer with its IK pass on.
         AnimatorControllerLayer[] layers = controller.layers;
@@ -962,7 +965,8 @@ public static class PlayerAnimatorBuilder
 
     static void WriteProfile(UpperBodyClips upper, float[] jumpWindUps, (AnimationClip left, AnimationClip right) runCurve,
         (AnimationClip left, AnimationClip right) aimWalkCurve, (AnimationClip left, AnimationClip right) aimJogCurve,
-        (AnimationClip left, AnimationClip right) unarmedWalkCurve, (AnimationClip left, AnimationClip right) unarmedJogCurve, (AnimationClip left, AnimationClip right) unarmedRunCurve)
+        (AnimationClip left, AnimationClip right) unarmedWalkCurve, (AnimationClip left, AnimationClip right) unarmedJogCurve, (AnimationClip left, AnimationClip right) unarmedRunCurve,
+        float crouchWalkCycle)
     {
         LocomotionProfile profile = AssetDatabase.LoadAssetAtPath<LocomotionProfile>(ProfilePath);
         if (profile == null)
@@ -985,8 +989,9 @@ public static class PlayerAnimatorBuilder
         profile.unarmedWalkLeanRate = (YawRate(unarmedWalkCurve.right) - YawRate(unarmedWalkCurve.left)) / 2f;
         profile.unarmedJogLeanRate = (YawRate(unarmedJogCurve.right) - YawRate(unarmedJogCurve.left)) / 2f;
         profile.unarmedRunLeanRate = (YawRate(unarmedRunCurve.right) - YawRate(unarmedRunCurve.left)) / 2f;
-        // The longest a stop can wait for its foot: one cycle of the gait's loop.
-        profile.gaitCycles = new[] { unarmedWalkCurve.left.length, unarmedJogCurve.left.length, unarmedRunCurve.left.length };
+        // The longest a stop can wait for its foot: one cycle of the gait's loop, walk, jog, run, and
+        // last the crouched walk.
+        profile.gaitCycles = new[] { unarmedWalkCurve.left.length, unarmedJogCurve.left.length, unarmedRunCurve.left.length, crouchWalkCycle };
         EditorUtility.SetDirty(profile);
     }
 

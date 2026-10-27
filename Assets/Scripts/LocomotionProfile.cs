@@ -34,6 +34,7 @@ public class LocomotionProfile : ScriptableObject
     public float unarmedRunLeanRate = 115f;
 
     [Header("Stopping")]
-    // One cycle of the walk, the jog and the run: the longest a stop waits for the foot its clip starts on.
-    public float[] gaitCycles = { 1.2f, 0.8f, 0.6f };
+    // One cycle of the walk, the jog, the run and the crouched walk: the longest a stop waits for the
+    // foot its clip starts on.
+    public float[] gaitCycles = { 1.2f, 0.8f, 0.6f, 1.2f };
 }
