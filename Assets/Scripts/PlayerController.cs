@@ -40,8 +40,8 @@ public class PlayerController : MonoBehaviour
     [FormerlySerializedAs("unarmedTurnOnSpotAngle")] public float freeTurnOnSpotAngle = 120f;
     [Tooltip("The same, crouched.")]
     public float turnOnSpotAngle = 50f;
-    [Tooltip("Aiming and standing, the camera this far off her facing turns her on the spot.")]
-    public float aimTurnAngle = 12f;
+    [Tooltip("Aiming and standing, the camera this far off her facing turns her on the spot, until she is within a third of it. The aim offset points the pistol across what is left.")]
+    public float aimTurnAngle = 24f;
     [Tooltip("Aiming and standing, the camera this far off her facing turns her a quarter turn at once.")]
     public float quickTurnAngle = 80f;
     [Tooltip("In a sharp turn she slows to this share of her gait, so she curves round instead of running a wide arc.")]
@@ -314,7 +314,7 @@ public class PlayerController : MonoBehaviour
                 float gait = !IsCrouching && running ? JogGait : WalkGait;
                 moveX = local.x * gait;
                 moveY = local.z * gait;
-                animator?.ResetTrigger("QuickTurn");
+                if (animator != null) animator.ResetTrigger("QuickTurn");
             }
             else
             {
@@ -326,12 +326,14 @@ public class PlayerController : MonoBehaviour
                     animator.SetInteger("TurnSide", turnSide);
                     animator.SetTrigger("QuickTurn");
                 }
-                turningOnSpot = turningOnSpot ? Mathf.Abs(error) > 3f : Mathf.Abs(error) > aimTurnAngle;
+                else if (animator != null) animator.ResetTrigger("QuickTurn");
+                // The turn loop runs on for its blend out, so she stops it well short of facing the camera.
+                turningOnSpot = turningOnSpot ? Mathf.Abs(error) > aimTurnAngle / 3f : Mathf.Abs(error) > aimTurnAngle;
             }
         }
         else
         {
-            animator?.ResetTrigger("QuickTurn");
+            if (animator != null) animator.ResetTrigger("QuickTurn");
             bool free = !IsCrouching;
             if (wantsToMove)
             {
@@ -360,7 +362,7 @@ public class PlayerController : MonoBehaviour
         // The clip turns her on the spot; on the move, turns build up and ease off rather than snapping.
         if (clipTurning || turningOnSpot || !wantsToMove) targetRate = 0f;
         float ease = !IsAiming && !IsCrouching ? freeTurnAcceleration : turnAcceleration;
-        turnRate = Mathf.MoveTowards(turnRate, targetRate, ease * Time.deltaTime);
+        turnRate = clipTurning ? 0f : Mathf.MoveTowards(turnRate, targetRate, ease * Time.deltaTime);
         transform.Rotate(0f, turnRate * Time.deltaTime, 0f);
     }
 
@@ -466,12 +468,12 @@ public class PlayerController : MonoBehaviour
             if (weaponAction == WeaponAction.Drawing)
             {
                 if (IsHolstered && weaponTimer >= (IsCrouching ? CrouchDrawGrabTime : DrawGrabTime)) PutGun(gunHandSocket, holstered: false);
-                if (weaponTimer >= p.drawTime * 0.9f) weaponAction = WeaponAction.None;
+                if (weaponTimer >= (IsCrouching ? p.crouchDrawTime : p.drawTime) * 0.9f) weaponAction = WeaponAction.None;
             }
             else
             {
                 if (!IsHolstered && weaponTimer >= (IsCrouching ? CrouchHolsterStowTime : HolsterStowTime)) PutGun(gunHolsterSocket, holstered: true);
-                if (weaponTimer >= p.holsterTime * 0.95f) weaponAction = WeaponAction.None;
+                if (weaponTimer >= (IsCrouching ? p.crouchHolsterTime : p.holsterTime) * 0.95f) weaponAction = WeaponAction.None;
             }
         }
 
@@ -513,7 +515,7 @@ public class PlayerController : MonoBehaviour
     bool TryReload()
     {
         if (IsHolstered || weaponAction != WeaponAction.None || IsReloading || Loaded >= magazineSize || ammo <= 0 || IsDead) return false;
-        reloadDuration = IsCrouching ? Profile.crouchReloadTime : Profile.reloadTime;
+        reloadDuration = IsCrouching ? Profile.crouchReloadTime : IsAiming ? Profile.aimReloadTime : Profile.reloadTime;
         reloadTimer = reloadDuration;
         roundsIn = false;
         Play(reloadSound);

@@ -14,9 +14,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::LocomotionProfile
   rapidFireInterval: 0.26666668
   reloadTime: 2
+  aimReloadTime: 1.6666667
   crouchReloadTime: 1.6666667
   drawTime: 1
+  crouchDrawTime: 1.3333334
   holsterTime: 1.4666667
+  crouchHolsterTime: 1.5333334
   jumpWindUps:
   - 0.475
   - 0.475
@@ -24,7 +27,6 @@ MonoBehaviour:
   - 0.38000003
   - 0.475
   - 0.475
-  turnInPlaceRate: 135.00005
   runLeanRate: 116.666626
   aimWalkLeanRate: 37.71431
   aimJogLeanRate: 95.7144

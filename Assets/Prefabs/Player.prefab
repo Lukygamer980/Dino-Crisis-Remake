@@ -242,7 +242,7 @@ MonoBehaviour:
   turnAcceleration: 1200
   freeTurnOnSpotAngle: 120
   turnOnSpotAngle: 50
-  aimTurnAngle: 12
+  aimTurnAngle: 24
   quickTurnAngle: 80
   sharpTurnSpeedShare: 0.35
   jumpSpeed: 4.6

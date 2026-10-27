@@ -10,10 +10,11 @@ using Object = UnityEngine.Object;
 //
 // The model is picked in the Player Character asset (see PlayerCharacterSetup); by default it is the
 // pack's own MotusMan, the skeleton the clips were recorded on. Every clip plays at the speed it was
-// recorded at, and the pack's root motion moves her: PlayerController hands each frame's animated
-// step to the CharacterController, so her feet carry her exactly as far as they step. Turns on the
-// spot and the quarter turns turn her by their own root rotation. On the move PlayerController steers
-// her toward the stick, and the pack's circle loops lean her into the curve.
+// recorded at, except the turn-in-place loops (TurnInPlaceSpeed), and the pack's root motion moves
+// her: PlayerController hands each frame's animated step to the CharacterController, so her feet
+// carry her exactly as far as they step. Turns on the spot and the quarter turns turn her by their
+// own root rotation. On the move PlayerController steers her toward the stick, and the pack's circle
+// loops lean her into the curve.
 //
 // The pack only moves with the pistol in hand: its holster and draw clips connect to the "MOB stand"
 // of MocapOnline's separate Mobility pack. Holstered, she stands in that pose (the last frame of the
@@ -107,6 +108,7 @@ public static class PlayerAnimatorBuilder
         if (!AssetDatabase.IsValidFolder(Generated)) AssetDatabase.CreateFolder("Assets/Characters/Player", "Generated");
         // The arm clips an earlier build made for the holstered stance.
         if (AssetDatabase.IsValidFolder(Generated + "/Unarmed Arms")) AssetDatabase.DeleteAsset(Generated + "/Unarmed Arms");
+        AssetDatabase.DeleteAsset(Generated + "/Arms.mask");
 
         // Standing with the pistol down. Straight loops keep their turn out of the root motion; turns
         // on the spot, quarter turns and circles turn by it.
@@ -432,7 +434,7 @@ public static class PlayerAnimatorBuilder
             (Additive("Look Center", lookCenter, lookCenter), 0f, 1f, 0f),
             (Additive("Look Up", PackClip(AimOffsets + "W1_Stand_Relaxed_Look_U90.fbx"), lookCenter), 1f, 1f, 0f)), additive: true);
 
-        WriteProfile(upper, windUps, (runCurveLeft, runCurveRight), (aimWalkCurveLeft, aimWalkCurveRight), (aimJogCurveLeft, aimJogCurveRight), turnLeft, turnRight);
+        WriteProfile(upper, windUps, (runCurveLeft, runCurveRight), (aimWalkCurveLeft, aimWalkCurveRight), (aimJogCurveLeft, aimJogCurveRight));
 
         // HomebrewIK places the feet in OnAnimatorIK, which only runs on a layer with its IK pass on.
         AnimatorControllerLayer[] layers = controller.layers;
@@ -727,7 +729,7 @@ public static class PlayerAnimatorBuilder
     // ---- What PlayerController needs to know of the clips ----
 
     static void WriteProfile(UpperBodyClips upper, float[] jumpWindUps, (AnimationClip left, AnimationClip right) runCurve,
-        (AnimationClip left, AnimationClip right) aimWalkCurve, (AnimationClip left, AnimationClip right) aimJogCurve, AnimationClip turnLeft, AnimationClip turnRight)
+        (AnimationClip left, AnimationClip right) aimWalkCurve, (AnimationClip left, AnimationClip right) aimJogCurve)
     {
         LocomotionProfile profile = AssetDatabase.LoadAssetAtPath<LocomotionProfile>(ProfilePath);
         if (profile == null)
@@ -737,11 +739,13 @@ public static class PlayerAnimatorBuilder
         }
         profile.rapidFireInterval = upper.rapidFire.length / RapidShotsPerLoop;
         profile.reloadTime = upper.reload.length;
+        profile.aimReloadTime = upper.aimReload.length;
         profile.crouchReloadTime = upper.crouchReload.length;
         profile.drawTime = upper.draw.length;
+        profile.crouchDrawTime = upper.crouchDraw.length;
         profile.holsterTime = upper.holster.length;
+        profile.crouchHolsterTime = upper.crouchHolster.length;
         profile.jumpWindUps = jumpWindUps;
-        profile.turnInPlaceRate = (YawRate(turnRight) - YawRate(turnLeft)) / 2f * TurnInPlaceSpeed;
         profile.runLeanRate = (YawRate(runCurve.right) - YawRate(runCurve.left)) / 2f;
         profile.aimWalkLeanRate = (YawRate(aimWalkCurve.right) - YawRate(aimWalkCurve.left)) / 2f;
         profile.aimJogLeanRate = (YawRate(aimJogCurve.right) - YawRate(aimJogCurve.left)) / 2f;
