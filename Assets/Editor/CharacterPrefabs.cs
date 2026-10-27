@@ -126,6 +126,7 @@ public static class CharacterPrefabs
         player.gunHandSocket = handSocket;
         player.gunHolsterSocket = holsterSocket;
         player.locomotion = AssetDatabase.LoadAssetAtPath<LocomotionProfile>(PlayerAnimatorBuilder.ProfilePath);
+        player.movement = PlayerAnimatorBuilder.MovementSettings;
         player.muzzleFlash = flash;
         player.animator = animator;
         GameFeedback.SetUpPlayer(player);

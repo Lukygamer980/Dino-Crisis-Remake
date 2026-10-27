@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Serialization;
 
 // Third-person controls: WASD or the left stick moves relative to where the camera looks, and she
 // turns to face where she is heading. The MocapOnline pack's root motion moves her: every frame the
@@ -26,32 +25,21 @@ public class PlayerController : MonoBehaviour
     const float DrawGrabTime = 0.23f, CrouchDrawGrabTime = 0.43f, HolsterStowTime = 0.63f, CrouchHolsterStowTime = 0.53f;
 
     [Header("Movement")]
+    [Tooltip("The gaits' tuning: walk, jog and sprint standing up, and the walk crouched. Edit the asset, also while playing.")]
+    public PlayerMovementSettings movement;
     public LocomotionProfile locomotion;
-    [Tooltip("How hard she turns toward where she is heading on the move: degrees per second for each degree off.")]
+    [Tooltip("Aiming: how hard she turns toward the camera on the move, degrees per second for each degree off.")]
     public float turnResponse = 5f;
-    [Tooltip("The fastest she turns on the move standing up and not aiming, in degrees per second.")]
-    [FormerlySerializedAs("unarmedMaxTurnRate")] public float freeMaxTurnRate = 260f;
-    [Tooltip("The fastest she turns on the move crouched or aiming, in degrees per second.")]
+    [Tooltip("The fastest she turns on the move aiming, in degrees per second.")]
     public float maxMovingTurnRate = 220f;
-    [Tooltip("How quickly a turn on the move builds up and eases off, standing up and not aiming. Lower is smoother.")]
-    [FormerlySerializedAs("unarmedTurnAcceleration")] public float freeTurnAcceleration = 700f;
+    [Tooltip("How quickly a turn builds up and eases off aiming, in degrees per second squared.")]
     public float turnAcceleration = 1200f;
-    [Tooltip("Standing and facing farther off than this, she turns on the spot before setting off; below it she sets off at once and curves round.")]
-    [FormerlySerializedAs("unarmedTurnOnSpotAngle")] public float freeTurnOnSpotAngle = 120f;
-    [Tooltip("The same, crouched.")]
+    [Tooltip("Crouched with the pistol down and standing, facing farther off than this she turns on the spot before setting off.")]
     public float turnOnSpotAngle = 50f;
     [Tooltip("Aiming and standing, the camera this far off her facing turns her on the spot, until she is within a third of it. The aim offset points the pistol across what is left.")]
     public float aimTurnAngle = 24f;
     [Tooltip("Aiming and standing, the camera this far off her facing turns her a quarter turn at once.")]
     public float quickTurnAngle = 80f;
-    [Tooltip("Holstered and standing, facing farther off than this she turns with the pack's quarter turn; walking or jogging, farther off than unarmedMovingTurnAngle she turns with its turn on the move.")]
-    public float unarmedTurnAngle = 60f;
-    [Tooltip("Holstered and walking or jogging, facing farther off than this she turns with the pack's turn on the move.")]
-    public float unarmedMovingTurnAngle = 80f;
-    [Tooltip("Holstered and standing, a turn farther than this steps round on the spot instead of a quarter turn.")]
-    public float unarmedQuickTurnMax = 120f;
-    [Tooltip("In a sharp turn she slows to this share of her gait, so she curves round instead of running a wide arc.")]
-    [FormerlySerializedAs("unarmedSharpTurnSpeedShare")] [Range(0f, 1f)] public float sharpTurnSpeedShare = 0.35f;
     public float jumpSpeed = 4.6f;
     public float standingHeight = 1.7f;
     public float crouchingHeight = 1.15f;
@@ -130,6 +118,8 @@ public class PlayerController : MonoBehaviour
     float idleTime;
     int lastStance;
     float unarmedBlend = 1f;
+    // The last MoveY she asked for on the move, which a waiting stop holds.
+    float lastMoveY;
     // The gait she asks for: walk 1, jog 2, run 3. It stays at the last one when she lets go, so the
     // Animator picks the stop that fits.
     int gait = 1;
@@ -158,6 +148,14 @@ public class PlayerController : MonoBehaviour
 
     LocomotionProfile Profile => locomotion != null ? locomotion : defaultProfile ??= ScriptableObject.CreateInstance<LocomotionProfile>();
     static LocomotionProfile defaultProfile;
+    PlayerMovementSettings Movement => movement != null ? movement : defaultMovement ??= ScriptableObject.CreateInstance<PlayerMovementSettings>();
+    static PlayerMovementSettings defaultMovement;
+
+    // A stop waiting for the foot its clip starts on: the gait is held this much longer at most.
+    float stopWait;
+    float heldMoveY;
+    bool wasMoving;
+    static readonly HashSet<int> StopStates = new() { Animator.StringToHash("Walk Stop"), Animator.StringToHash("Jog Stop"), Animator.StringToHash("Run Stop"), Animator.StringToHash("Stop") };
 
     void Awake()
     {
@@ -202,13 +200,13 @@ public class PlayerController : MonoBehaviour
         Quaternion view = CameraYaw();
         Vector2 stick = canAct ? GameInput.Move.ReadValue<Vector2>() : Vector2.zero;
         Vector3 input = Vector3.ClampMagnitude(new Vector3(stick.x, 0f, stick.y), 1f);
-        Vector3 move = input.sqrMagnitude < 0.01f ? Vector3.zero : view * input;
+        Vector3 move = input.magnitude < Mathf.Max(0.05f, Movement.deadzone) ? Vector3.zero : view * input;
         bool running = canAct && GameInput.Run.IsPressed();
         // Running gets her up off her knees.
         if (running && IsCrouching && move != Vector3.zero) TryStandUp();
         wantsToMove = move != Vector3.zero;
 
-        Steer(move, running, view);
+        Steer(move, input.magnitude, running, view);
 
         if (canAct)
         {
@@ -299,7 +297,7 @@ public class PlayerController : MonoBehaviour
 
     // Picks the gait and the turn. Free movement goes where she faces, so a turn on the move is a curve;
     // aiming, she faces the camera and strafes.
-    void Steer(Vector3 move, bool running, Quaternion view)
+    void Steer(Vector3 move, float amount, bool running, Quaternion view)
     {
         float yaw = transform.eulerAngles.y;
         float targetRate = 0f;
@@ -342,20 +340,22 @@ public class PlayerController : MonoBehaviour
         }
         else
         {
+            PlayerMovementSettings ms = Movement;
             bool free = !IsCrouching;
             bool unarmed = IsHolstered;
             bool quickTurn = false;
             if (wantsToMove)
             {
                 gait = !running || IsCrouching ? 1 : Status == "DANGER" ? 2 : 3;
+                PlayerMovementSettings.Gait g = ms.For(gait);
                 float error = Mathf.DeltaAngle(yaw, Quaternion.LookRotation(move).eulerAngles.y);
                 turnSide = error < 0f ? -1 : 1;
                 bool onTheMove = ClipTag(MoveTag);
                 // Holstered and standing, a turn of more than unarmedQuickTurnMax is stepped round on the
                 // spot, since two quarter turns would take seconds.
-                if (unarmed && !onTheMove && Mathf.Abs(error) > unarmedQuickTurnMax) turningOnSpot = true;
+                if (unarmed && !onTheMove && Mathf.Abs(error) > ms.quarterTurnMax) turningOnSpot = true;
                 else if (unarmed && !turningOnSpot && !clipTurning && animator != null && rootMotion != null
-                    && Mathf.Abs(error) > (onTheMove ? unarmedMovingTurnAngle : unarmedTurnAngle) && (!onTheMove || (gait < 3 && !IsCrouching)))
+                    && Mathf.Abs(error) > (onTheMove ? g.turnClipAngle : ms.quarterTurnAngle) && (!onTheMove || (gait < 3 && !IsCrouching && g.turnClipAngle < 180f)))
                 {
                     // Holstered, the Mobility pack turns her: a quarter turn from a stand (crouched too),
                     // or its turn on the move from a walk or a jog.
@@ -365,28 +365,47 @@ public class PlayerController : MonoBehaviour
                     turningOnSpot = false;
                 }
                 // Standing and facing well away, she steps round on the spot first and sets off once nearly there.
-                else if (!unarmed && !onTheMove && Mathf.Abs(error) > (free ? freeTurnOnSpotAngle : turnOnSpotAngle)) turningOnSpot = true;
+                else if (!unarmed && !onTheMove && Mathf.Abs(error) > (free ? ms.turnOnSpotAngle : turnOnSpotAngle)) turningOnSpot = true;
                 else if (Mathf.Abs(error) < 30f) turningOnSpot = false;
                 if (!turningOnSpot)
                 {
-                    float maxRate = free ? freeMaxTurnRate : maxMovingTurnRate;
-                    targetRate = Mathf.Clamp(error * turnResponse, -maxRate, maxRate);
+                    // While the pack's turn on the move takes over, she doesn't also steer by hand.
+                    if (!quickTurn) targetRate = Mathf.Clamp(error * g.turnResponse, -g.maxTurnRate, g.maxTurnRate);
                     // A sharp turn slows her, so she curves round rather than running a wide arc.
-                    float sharpness = Mathf.Clamp01(1f - (Mathf.Abs(error) - 45f) / 120f);
-                    if (free) sharpness = Mathf.Max(sharpness, sharpTurnSpeedShare);
+                    float sharpness = Mathf.Max(Mathf.Clamp01(1f - (Mathf.Abs(error) - 45f) / 120f), g.sharpTurnSpeedShare);
                     moveY = Mathf.Max(WalkGait, gait * sharpness);
+                    // With analog walk, a stick pushed part way walks slower.
+                    if (gait == 1 && ms.analogWalk) moveY = Mathf.Lerp(ms.analogWalkMin, 1f, Mathf.InverseLerp(ms.deadzone, 1f, amount));
                 }
             }
             else
             {
                 turningOnSpot = false;
+                // Letting go: a stop clip that starts on a given foot waits for it, so she walks on at
+                // the same gait until the Animator takes the stop, at most one cycle.
+                if (wasMoving && HasStopClip(Stance(), gait) && ms.For(gait).stopClip && ms.For(gait).stopOnFoot)
+                {
+                    stopWait = gait > 0 && gait <= Profile.gaitCycles.Length ? Profile.gaitCycles[IsCrouching ? 0 : gait - 1] : 1f;
+                    heldMoveY = Mathf.Max(lastMoveY, WalkGait);
+                }
+                if (stopWait > 0f && animator != null)
+                {
+                    stopWait -= Time.deltaTime;
+                    if (StopStates.Contains(animator.GetCurrentAnimatorStateInfo(0).shortNameHash) || (animator.IsInTransition(0) && StopStates.Contains(animator.GetNextAnimatorStateInfo(0).shortNameHash)))
+                        stopWait = 0f;
+                    else moveY = heldMoveY;
+                }
             }
             if (!quickTurn && animator != null) animator.ResetTrigger("QuickTurn");
+            if (quickTurn) turnRate = 0f;
+            if (wantsToMove) stopWait = 0f;
         }
+        wasMoving = wantsToMove && !turningOnSpot;
+        if (wantsToMove) lastMoveY = moveY;
 
         // The clip turns her on the spot; on the move, turns build up and ease off rather than snapping.
         if (clipTurning || turningOnSpot || !wantsToMove) targetRate = 0f;
-        float ease = !IsAiming && !IsCrouching ? freeTurnAcceleration : turnAcceleration;
+        float ease = !IsAiming ? Movement.For(gait).turnAcceleration : turnAcceleration;
         turnRate = clipTurning ? 0f : Mathf.MoveTowards(turnRate, targetRate, ease * Time.deltaTime);
         transform.Rotate(0f, turnRate * Time.deltaTime, 0f);
     }
@@ -594,13 +613,24 @@ public class PlayerController : MonoBehaviour
         float dt = Time.deltaTime;
         int stance = Stance();
         LocomotionProfile p = Profile;
-        animator.SetFloat("MoveX", moveX, 0.1f, dt);
-        animator.SetFloat("MoveY", moveY, 0.15f, dt);
+        PlayerMovementSettings ms = Movement;
+        bool free = !IsAiming;
+        float blend = free ? ms.For(gait).blendTime : 0.15f;
+        animator.SetFloat("MoveX", moveX, Mathf.Max(0.02f, blend * 0.7f), dt);
+        animator.SetFloat("MoveY", moveY, Mathf.Max(0.02f, blend), dt);
+        // The gaits' playback speeds, blended as the gaits are.
+        float gaitNow = Mathf.Abs(animator.GetFloat("MoveY"));
+        float playback = gaitNow <= WalkGait ? ms.walk.playbackSpeed : gaitNow <= JogGait ? Mathf.Lerp(ms.walk.playbackSpeed, ms.jog.playbackSpeed, gaitNow - WalkGait)
+            : Mathf.Lerp(ms.jog.playbackSpeed, ms.sprint.playbackSpeed, Mathf.Clamp01(gaitNow - JogGait));
+        animator.SetFloat("MoveSpeed", free ? playback : 1f);
+        animator.SetBool("UseStart", ms.For(gait).startClip);
+        animator.SetBool("UseStop", ms.For(gait).stopClip);
         // Steering as fast as the pack's circle loops turn leans her fully into the curve.
         float leanRate = stance == AimStance ? Mathf.Lerp(p.aimWalkLeanRate, p.aimJogLeanRate, Mathf.Clamp01(moveY - WalkGait))
             : IsHolstered ? (moveY > JogGait ? p.unarmedRunLeanRate : moveY > WalkGait ? p.unarmedJogLeanRate : p.unarmedWalkLeanRate)
             : p.runLeanRate;
-        animator.SetFloat("Turn", Mathf.Clamp(turnRate / Mathf.Max(1f, leanRate), -1f, 1f), 0.2f, dt);
+        float leanScale = free ? ms.For(gait).lean : 1f;
+        animator.SetFloat("Turn", Mathf.Clamp(turnRate / Mathf.Max(1f, leanRate) * leanScale, -1.5f, 1.5f), 0.2f, dt);
         animator.SetInteger("Stance", stance);
         animator.SetBool("IsAiming", IsAiming);
         animator.SetBool("Moving", wantsToMove && !turningOnSpot);
@@ -635,6 +665,46 @@ public class PlayerController : MonoBehaviour
         idleTime = still ? idleTime + Time.deltaTime : 0f;
         lastStance = stance;
         animator.SetFloat("IdleTime", idleTime);
+    }
+
+    // Whether the stance has a stop clip for the gait: holstered for every gait, crouched holstered
+    // for the walk, and with the pistol down only from a run.
+    static bool HasStopClip(int stance, int gait) => stance switch
+    {
+        UnarmedStance or UnarmedHurtStance => true,
+        UnarmedCrouchStance => gait == 1,
+        RelaxedStance or HurtStance => gait == 3,
+        _ => false,
+    };
+
+    // Player Movement's debug readout: what she asks for and what the Animator plays.
+    void OnGUI()
+    {
+        if (!Movement.showDebug || animator == null) return;
+        Vector3 v = controller.velocity;
+        v.y = 0f;
+        AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
+        string text = $"stance {Stance()}  gait {gait}  pace {v.magnitude:F2} m/s\n" +
+            $"MoveY {animator.GetFloat("MoveY"):F2}  MoveX {animator.GetFloat("MoveX"):F2}  speed x{animator.GetFloat("MoveSpeed"):F2}\n" +
+            $"turn {turnRate:F0} deg/s  lean {animator.GetFloat("Turn"):F2}  on the spot {turningOnSpot}\n" +
+            $"state {StateName(state.shortNameHash)} {state.normalizedTime % 1f:F2}{(animator.IsInTransition(0) ? " -> " + StateName(animator.GetNextAnimatorStateInfo(0).shortNameHash) : "")}" +
+            (stopWait > 0f ? $"  stop waits {stopWait:F2}s" : "");
+        GUI.Box(new Rect(10f, 10f, 440f, 74f), GUIContent.none);
+        GUI.Label(new Rect(18f, 14f, 430f, 70f), text);
+    }
+
+    static readonly string[] KnownStates = { "Idle", "Move", "Turn Left", "Turn Right", "Quick Turn Left", "Quick Turn Right", "Start Walk", "Start Jog", "Start Run",
+        "Walk Stop", "Jog Stop", "Run Stop", "Stop", "Walk Turn Left", "Walk Turn Right", "Jog Turn Left", "Jog Turn Right", "First Step", "Look Around", "Wait", "Talk",
+        "Relaxed To Aim", "Aim To Relaxed", "Unarmed To Crouch", "Unarmed Crouch To Stand", "Hit", "Unarmed Hit" };
+    static Dictionary<int, string> stateNames;
+    static string StateName(int hash)
+    {
+        if (stateNames == null)
+        {
+            stateNames = new Dictionary<int, string>();
+            foreach (string name in KnownStates) stateNames[Animator.StringToHash(name)] = name;
+        }
+        return stateNames.TryGetValue(hash, out string found) ? found : "?";
     }
 
     Quaternion CameraYaw() => viewCamera != null ? Quaternion.Euler(0f, viewCamera.transform.eulerAngles.y, 0f) : transform.rotation;

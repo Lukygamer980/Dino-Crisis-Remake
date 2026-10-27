@@ -1,0 +1,68 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1060968b42fb74f6c939a3989e0a58aa, type: 3}
+  m_Name: Player Movement
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerMovementSettings
+  deadzone: 0.15
+  analogWalk: 0
+  analogWalkMin: 0.5
+  walk:
+    playbackSpeed: 1
+    blendTime: 0.15
+    maxTurnRate: 260
+    turnResponse: 5
+    turnAcceleration: 700
+    lean: 1
+    sharpTurnSpeedShare: 0.35
+    turnClipAngle: 80
+    startClip: 1
+    stopClip: 1
+    startSkip: 0
+    startBlend: 0.15
+    stopOnFoot: 1
+    stopBlend: 0.2
+  jog:
+    playbackSpeed: 1
+    blendTime: 0.2
+    maxTurnRate: 240
+    turnResponse: 5
+    turnAcceleration: 700
+    lean: 1
+    sharpTurnSpeedShare: 0.35
+    turnClipAngle: 80
+    startClip: 1
+    stopClip: 1
+    startSkip: 0
+    startBlend: 0.15
+    stopOnFoot: 1
+    stopBlend: 0.2
+  sprint:
+    playbackSpeed: 1
+    blendTime: 0.25
+    maxTurnRate: 200
+    turnResponse: 4
+    turnAcceleration: 600
+    lean: 1
+    sharpTurnSpeedShare: 0.35
+    turnClipAngle: 180
+    startClip: 1
+    stopClip: 1
+    startSkip: 0
+    startBlend: 0.15
+    stopOnFoot: 1
+    stopBlend: 0.2
+  turnOnSpotAngle: 120
+  quarterTurnAngle: 60
+  quarterTurnMax: 120
+  idleToMoveBlend: 0.2
+  moveToIdleBlend: 0.3
+  showDebug: 0

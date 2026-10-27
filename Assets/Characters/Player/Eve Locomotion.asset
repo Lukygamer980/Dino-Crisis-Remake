@@ -33,3 +33,7 @@ MonoBehaviour:
   unarmedWalkLeanRate: 83.33339
   unarmedJogLeanRate: 118.535225
   unarmedRunLeanRate: 101.78221
+  gaitCycles:
+  - 1.2
+  - 0.8000001
+  - 0.6

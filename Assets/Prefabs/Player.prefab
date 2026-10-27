@@ -234,20 +234,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 96b68fcb0ab0d473ab9e2563256a21b0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerController
+  movement: {fileID: 11400000, guid: 36ee7fc8e16e140cf84bcb9b682905b9, type: 2}
   locomotion: {fileID: 11400000, guid: 69edb9b19421d4ecea29db08af74e6bf, type: 2}
   turnResponse: 5
-  freeMaxTurnRate: 260
   maxMovingTurnRate: 220
-  freeTurnAcceleration: 700
   turnAcceleration: 1200
-  freeTurnOnSpotAngle: 120
   turnOnSpotAngle: 50
   aimTurnAngle: 24
   quickTurnAngle: 80
-  unarmedTurnAngle: 60
-  unarmedMovingTurnAngle: 80
-  unarmedQuickTurnMax: 120
-  sharpTurnSpeedShare: 0.35
   jumpSpeed: 4.6
   standingHeight: 1.7
   crouchingHeight: 1.15

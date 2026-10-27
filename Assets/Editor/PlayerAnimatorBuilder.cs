@@ -103,6 +103,19 @@ public static class PlayerAnimatorBuilder
         }
     }
 
+    // The Player Movement asset, created with its defaults the first time it is needed.
+    public static PlayerMovementSettings MovementSettings
+    {
+        get
+        {
+            var settings = AssetDatabase.LoadAssetAtPath<PlayerMovementSettings>(PlayerMovementSettings.Path);
+            if (settings != null) return settings;
+            settings = ScriptableObject.CreateInstance<PlayerMovementSettings>();
+            AssetDatabase.CreateAsset(settings, PlayerMovementSettings.Path);
+            return settings;
+        }
+    }
+
     [MenuItem("Dino Demo/Build Player Animator")]
     public static void Build()
     {
@@ -110,6 +123,7 @@ public static class PlayerAnimatorBuilder
         if (setup.model == null) throw new InvalidOperationException("The Player Character asset has no model: " + PlayerCharacterSetup.Path);
         string avatarPath = PrepareModel(setup);
         if (setup.limitFeet) LimitFeet(avatarPath, setup.footUpLimit, setup.footTwistLimit);
+        PlayerMovementSettings ms = MovementSettings;
         motusMan = PrepareMotusMan();
         mannequin = PrepareMannequin();
         if (!AssetDatabase.IsValidFolder(Generated)) AssetDatabase.CreateFolder("Assets/Characters/Player", "Generated");
@@ -257,6 +271,8 @@ public static class PlayerAnimatorBuilder
             (s.turnLeft, s.turnRight) = (s.Add("Turn Left", turnLeft, "Turn"), s.Add("Turn Right", turnRight, "Turn"));
             s.stop = s.Add("Stop", runStop, "Move");
             s.fidget = s.Add("Look Around", fidget);
+            s.gaitLoops = new[] { walk, jog, run };
+            s.free = true;
         }
 
         // Aiming: strafes in every direction; walking and jogging forward lean into curves.
@@ -340,6 +356,8 @@ public static class PlayerAnimatorBuilder
                 (s.Add("Walk Turn Left", M("Walk_L_90", true), "Turn"), -1, 0f, 1.5f), (s.Add("Walk Turn Right", M("Walk_R_90", true), "Turn"), 1, 0f, 1.5f),
                 (s.Add("Jog Turn Left", M("Jog_L_90", true), "Turn"), -1, 1.5f, 2.5f), (s.Add("Jog Turn Right", M("Jog_R_90", true), "Turn"), 1, 1.5f, 2.5f),
             };
+            s.gaitLoops = new[] { mWalk, mJog, mRun };
+            s.free = true;
             if (id == Unarmed)
             {
                 s.fidget = s.Add("Wait", M("Stand_Relaxed_Fgt_v1"));
@@ -361,10 +379,20 @@ public static class PlayerAnimatorBuilder
         uc.quickLeft.speed = uc.quickRight.speed = UnarmedQuickTurnSpeed;
         uc.start = uc.Add("First Step", M("Crouch_To_CrouchWalk_F"), "Move");
         uc.stops = new[] { uc.Add("Stop", M("CrouchWalk_F_To_Crouch_RU"), "Move") };
+        uc.gaitLoops = new[] { M("CrouchWalk_F_Loop") };
+        uc.free = true;
 
         foreach (StanceStates s in stances.Values)
         {
             foreach (AnimatorState turn in new[] { s.turnLeft, s.turnRight }) turn.speed = TurnInPlaceSpeed;
+            // The gait's playback speed (Player Movement) on moving, setting off and stopping.
+            if (s.free)
+                foreach (AnimatorState state in s.all)
+                    if (state.tag == "Move")
+                    {
+                        state.speedParameterActive = true;
+                        state.speedParameter = "MoveSpeed";
+                    }
             // Unity's Foot IK puts the feet where the clip's flat-footed actor put his; on heels that
             // bends the ankles, so it is a choice in the Player Character asset.
             foreach (AnimatorState state in s.all) state.iKOnFeet = setup.stateFootIK;
@@ -446,9 +474,12 @@ public static class PlayerAnimatorBuilder
                 // Setting off from a stand into the gait she asks for, before the plain blend into moving.
                 for (int g = 0; g < s.starts.Length; g++)
                 {
-                    Go(s.idle, s.starts[g], 0.15f, On("Moving"), Is("Gait", g + 1));
+                    PlayerMovementSettings.Gait gait = ms.For(g + 1);
+                    Go(s.idle, s.starts[g], gait.startBlend, On("Moving"), Is("Gait", g + 1), On("UseStart")).offset = gait.startSkip;
                     Go(s.starts[g], s.idle, 0.25f, Off("Moving"));
-                    ExitTo(s.starts[g], s.move, 0.85f, 0.2f);
+                    // Into the gait at the point of its cycle the start clip ends on, so the steps carry on.
+                    AnimationClip startClip = (AnimationClip)s.starts[g].motion;
+                    ExitTo(s.starts[g], s.move, 0.85f, 0.2f).offset = MatchPhase(s.gaitLoops[g], startClip, startClip.length * 0.85f);
                 }
             }
             if (s.start != null)
@@ -457,7 +488,7 @@ public static class PlayerAnimatorBuilder
                 Go(s.start, s.idle, 0.25f, Off("Moving"));
                 ExitTo(s.start, s.move, 0.85f, 0.2f);
             }
-            Go(s.idle, s.move, 0.2f, On("Moving"));
+            Go(s.idle, s.move, ms.idleToMoveBlend, On("Moving"));
             if (s.fidget != null)
             {
                 // Standing still a while, she looks around; setting off or turning cuts the look short.
@@ -480,7 +511,7 @@ public static class PlayerAnimatorBuilder
         foreach (int id in new[] { Relaxed, Hurt })
         {
             StanceStates s = stances[id];
-            Go(s.move, s.stop, 0.2f, Off("Moving"), Is("Gait", 3), Above("MoveY", 1.5f));
+            StopTransition(s.move, s.stop, ms.sprint, run, Is("Gait", 3), Above("MoveY", 1.5f));
             Go(s.stop, s.move, 0.2f, On("Moving"));
             ExitTo(s.stop, s.idle, 0.9f);
         }
@@ -500,7 +531,7 @@ public static class PlayerAnimatorBuilder
             StanceStates s = stances[id];
             for (int g = s.stops.Length - 1; g >= 0; g--)
             {
-                Go(s.move, s.stops[g], 0.2f, Off("Moving"), Is("Gait", g + 1), Above("MoveY", g == 2 ? 1.5f : 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
+                StopTransition(s.move, s.stops[g], ms.For(g + 1), s.gaitLoops[g], Is("Gait", g + 1), Above("MoveY", g == 2 ? 1.5f : 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
                 Go(s.stops[g], s.move, 0.2f, On("Moving"));
                 ExitTo(s.stops[g], s.idle, 0.9f);
             }
@@ -512,7 +543,9 @@ public static class PlayerAnimatorBuilder
                 ExitTo(turn, s.idle, 0.85f, 0.25f, Off("Moving"));
             }
         }
-        foreach (StanceStates s in stances.Values) Go(s.move, s.idle, 0.3f, Off("Moving"));
+        // Otherwise back to a stand once she has slowed (PlayerController holds the gait while a stop
+        // waits for its foot).
+        foreach (StanceStates s in stances.Values) Go(s.move, s.idle, ms.moveToIdleBlend, Off("Moving"), Below("MoveY", 0.3f), Above("MoveY", -0.3f));
 
         // Death first, so a pending hit or jump can't stand her back up.
         for (int i = 0; i < 4; i++)
@@ -590,6 +623,59 @@ public static class PlayerAnimatorBuilder
 
     // ---- Stances ----
 
+    // Into a stop clip once she lets go in this gait: with the gait's stopOnFoot, at the point of the
+    // gait's cycle the stop clip starts from, so its last steps follow on; otherwise at once.
+    static void StopTransition(AnimatorState move, AnimatorState stop, PlayerMovementSettings.Gait gait, AnimationClip loop,
+        params (AnimatorConditionMode mode, float threshold, string parameter)[] conditions)
+    {
+        var all = new List<(AnimatorConditionMode, float, string)>(conditions) { Off("Moving"), On("UseStop") };
+        AnimatorStateTransition transition = Go(move, stop, gait.stopBlend, all.ToArray());
+        if (gait.stopOnFoot)
+        {
+            transition.hasExitTime = true;
+            transition.exitTime = MatchPhase(loop, (AnimationClip)stop.motion, 0f);
+        }
+    }
+
+    // The point of a loop's cycle (0 to 1) whose legs are closest to `clip`'s at `time`: by the swing
+    // of both thighs and the bend of both knees, moving the same way.
+    static float MatchPhase(AnimationClip loop, AnimationClip clip, float time)
+    {
+        string[] legs = { "Left Upper Leg Front-Back", "Right Upper Leg Front-Back", "Left Lower Leg Stretch", "Right Lower Leg Stretch" };
+        var loopCurves = new AnimationCurve[legs.Length];
+        var clipCurves = new AnimationCurve[legs.Length];
+        for (int i = 0; i < legs.Length; i++)
+        {
+            loopCurves[i] = Curve(loop, legs[i]);
+            clipCurves[i] = Curve(clip, legs[i]);
+            if (loopCurves[i] == null || clipCurves[i] == null) return 0f;
+        }
+        const float dt = 1f / 30f;
+        float best = 0f, bestError = float.MaxValue;
+        for (int n = 0; n < 120; n++)
+        {
+            float t = loop.length * n / 120f;
+            float error = 0f;
+            for (int i = 0; i < legs.Length; i++)
+            {
+                float target = clipCurves[i].Evaluate(time), value = loopCurves[i].Evaluate(t);
+                error += Mathf.Abs(value - target);
+                // The thighs must also swing the same way.
+                if (i < 2)
+                {
+                    float targetSwing = clipCurves[i].Evaluate(time + dt) - target, swing = loopCurves[i].Evaluate(t + dt) - value;
+                    if (targetSwing * swing < 0f) error += 0.3f;
+                }
+            }
+            if (error < bestError)
+            {
+                bestError = error;
+                best = n / 120f;
+            }
+        }
+        return best;
+    }
+
     class StanceStates
     {
         readonly AnimatorStateMachine machine;
@@ -597,6 +683,10 @@ public static class PlayerAnimatorBuilder
         // Setting off into a walk, a jog or a run; the last steps from each; and turns on the move,
         // with the side and the MoveY range they play in.
         public AnimatorState[] starts, stops;
+        // The forward loop of each gait, to fit starts and stops to its steps; and whether the Player
+        // Movement asset's gaits drive this stance (standing up or crouched, not aiming).
+        public AnimationClip[] gaitLoops;
+        public bool free;
         public (AnimatorState state, int side, float above, float below)[] moveTurns;
         public readonly List<AnimatorState> all = new();
 
@@ -895,6 +985,8 @@ public static class PlayerAnimatorBuilder
         profile.unarmedWalkLeanRate = (YawRate(unarmedWalkCurve.right) - YawRate(unarmedWalkCurve.left)) / 2f;
         profile.unarmedJogLeanRate = (YawRate(unarmedJogCurve.right) - YawRate(unarmedJogCurve.left)) / 2f;
         profile.unarmedRunLeanRate = (YawRate(unarmedRunCurve.right) - YawRate(unarmedRunCurve.left)) / 2f;
+        // The longest a stop can wait for its foot: one cycle of the gait's loop.
+        profile.gaitCycles = new[] { unarmedWalkCurve.left.length, unarmedJogCurve.left.length, unarmedRunCurve.left.length };
         EditorUtility.SetDirty(profile);
     }
 
@@ -1078,6 +1170,10 @@ public static class PlayerAnimatorBuilder
             importer.avatarSetup = ModelImporterAvatarSetup.CopyFromOther;
             importer.sourceAvatar = source;
         }
+        // The hips drive the root motion: this pack's Root node stays still (MocapOnline's animated
+        // reference root came with later packs, like Mobility).
+        changed |= importer.motionNodeName != "";
+        importer.motionNodeName = "";
         if (changed) importer.SaveAndReimport();
         SetClipSettings(importer, loop, bakeRotation: !turn);
         return Load(path, importer.clipAnimations[0].name);
@@ -1117,16 +1213,21 @@ public static class PlayerAnimatorBuilder
     }
 
     // A Mobility pack clip, with the import settings the pack ships with (Humanoid, copying the pack's
-    // MotusMan avatar, loops, travel as root motion, turn and height in the pose), except that a
-    // turning clip (`turn`) turns by root motion, or the turn would snap back at the end of each loop.
+    // MotusMan avatar, loops), and its "reference root motion", which MocapOnline's Unity notes
+    // recommend: the skeleton's Root node, animated under her feet and always facing the way she goes,
+    // drives the root motion instead of the hips. The hips don't face true forward, so with them a
+    // turning clip turned by its hips' sway, and blending into or out of one threw her off at up to
+    // 4 m/s. With the Root node the bake settings no longer apply.
+    const string ReferenceRoot = "Root";
     static AnimationClip MobClip(string path, bool turn = false)
     {
         if (AssetImporter.GetAtPath(path) is not ModelImporter importer) throw new InvalidOperationException("Missing " + path + ": import Unity_Mobility_27B_Basic.unitypackage into Assets/Animations.");
         ModelImporterClipAnimation[] clips = importer.clipAnimations;
         if (clips == null || clips.Length == 0) clips = importer.defaultClipAnimations;
-        if (turn && clips[0].lockRootRotation)
+        if (clips.Length == 0) throw new InvalidOperationException("No clip in " + path);
+        if (importer.motionNodeName != ReferenceRoot)
         {
-            clips[0].lockRootRotation = false;
+            importer.motionNodeName = ReferenceRoot;
             importer.clipAnimations = clips;
             importer.SaveAndReimport();
         }
@@ -1300,9 +1401,9 @@ public static class PlayerAnimatorBuilder
 
     static void AddParameters()
     {
-        foreach (string name in new[] { "MoveX", "MoveY", "Turn", "AimPitch", "AimYaw", "AimBlend", "CrouchBlend", "UnarmedBlend", "IdleTime" })
+        foreach (string name in new[] { "MoveX", "MoveY", "Turn", "MoveSpeed", "AimPitch", "AimYaw", "AimBlend", "CrouchBlend", "UnarmedBlend", "IdleTime" })
             controller.AddParameter(name, AnimatorControllerParameterType.Float);
-        foreach (string name in new[] { "IsAiming", "Moving", "TurnInPlace", "Grounded", "IsDead", "RapidFire", "Unarmed" })
+        foreach (string name in new[] { "IsAiming", "Moving", "TurnInPlace", "Grounded", "IsDead", "RapidFire", "Unarmed", "UseStart", "UseStop" })
             controller.AddParameter(name, AnimatorControllerParameterType.Bool);
         foreach (string name in new[] { "Stance", "JumpKind", "DeathDir", "TurnSide", "Weapon", "Gait", "IdleVariant" })
             controller.AddParameter(name, AnimatorControllerParameterType.Int);
@@ -1314,6 +1415,8 @@ public static class PlayerAnimatorBuilder
             if (parameter.name == "Stance") parameter.defaultInt = Unarmed;
             if (parameter.name == "UnarmedBlend") parameter.defaultFloat = 1f;
             if (parameter.name == "Gait") parameter.defaultInt = 1;
+            if (parameter.name == "MoveSpeed") parameter.defaultFloat = 1f;
+            if (parameter.name is "UseStart" or "UseStop") parameter.defaultBool = true;
             if (parameter.name == "Grounded") parameter.defaultBool = true;
             if (parameter.name == "Unarmed") parameter.defaultBool = true;
             if (parameter.name == "Weapon") parameter.defaultInt = 1;
