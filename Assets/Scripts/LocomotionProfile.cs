@@ -28,4 +28,8 @@ public class LocomotionProfile : ScriptableObject
     public float runLeanRate = 115f;
     public float aimWalkLeanRate = 38f;
     public float aimJogLeanRate = 95f;
+    // The same without the pistol, walking, jogging and running.
+    public float unarmedWalkLeanRate = 40f;
+    public float unarmedJogLeanRate = 95f;
+    public float unarmedRunLeanRate = 115f;
 }

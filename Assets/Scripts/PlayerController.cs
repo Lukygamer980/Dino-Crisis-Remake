@@ -10,13 +10,13 @@ using UnityEngine.Serialization;
 // when she stands facing well away; the turn clips' own rotation turns her then.
 // Holding aim turns her with the camera and lets her strafe; shots go to the crosshair at the center
 // of the screen, also on the move. She can crouch, jump, reload, and holster or draw the pistol;
-// holding the trigger keeps firing. The pack only moves with the pistol in hand, so holstered she
-// stands in its MOB pose and draws as soon as she sets off.
+// holding the trigger keeps firing. Holstered she moves on MocapOnline's Mobility pack: turning
+// sharply, from a stand or on the move, plays its quarter turns instead of steering by hand.
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
 {
     // Stances, as PlayerAnimatorBuilder lays them out in the Animator.
-    const int RelaxedStance = 1, AimStance = 2, CrouchStance = 3, CrouchAimStance = 4, HurtStance = 5;
+    const int RelaxedStance = 1, AimStance = 2, CrouchStance = 3, CrouchAimStance = 4, HurtStance = 5, UnarmedStance = 6, UnarmedCrouchStance = 7, UnarmedHurtStance = 8;
     // Jumps, as the Animator's JumpKind.
     const int JumpStand = 0, JumpRun = 1, JumpAimStand = 2, JumpAimForward = 3, JumpAimLeft = 4, JumpAimRight = 5;
     // Gaits, as the radius of PlayerAnimatorBuilder's movement blends.
@@ -44,6 +44,11 @@ public class PlayerController : MonoBehaviour
     public float aimTurnAngle = 24f;
     [Tooltip("Aiming and standing, the camera this far off her facing turns her a quarter turn at once.")]
     public float quickTurnAngle = 80f;
+    [Tooltip("Holstered and standing, facing farther off than this she turns with the pack's quarter turn; walking or jogging, farther off than unarmedMovingTurnAngle she turns with its turn on the move.")]
+    public float unarmedTurnAngle = 60f;
+    public float unarmedMovingTurnAngle = 80f;
+    [Tooltip("Holstered and standing, a turn farther than this steps round on the spot instead of a quarter turn.")]
+    public float unarmedQuickTurnMax = 120f;
     [Tooltip("In a sharp turn she slows to this share of her gait, so she curves round instead of running a wide arc.")]
     [FormerlySerializedAs("unarmedSharpTurnSpeedShare")] [Range(0f, 1f)] public float sharpTurnSpeedShare = 0.35f;
     public float jumpSpeed = 4.6f;
@@ -123,6 +128,10 @@ public class PlayerController : MonoBehaviour
     Vector3 groundVelocity, airVelocity, landingCarry;
     float idleTime;
     int lastStance;
+    float unarmedBlend = 1f;
+    // The gait she asks for: walk 1, jog 2, run 3. It stays at the last one when she lets go, so the
+    // Animator picks the stop that fits.
+    int gait = 1;
     float aimWeight;
     float lookWeight;
     int aimLayer = -1, lookLayer = -1;
@@ -196,8 +205,6 @@ public class PlayerController : MonoBehaviour
         // Running gets her up off her knees.
         if (running && IsCrouching && move != Vector3.zero) TryStandUp();
         wantsToMove = move != Vector3.zero;
-        // The pack only moves with the pistol in hand: setting off draws it.
-        if (wantsToMove && IsHolstered) StartDraw();
 
         Steer(move, running, view);
 
@@ -311,7 +318,7 @@ public class PlayerController : MonoBehaviour
                 turningOnSpot = false;
                 targetRate = Mathf.Clamp(error * turnResponse * 1.5f, -maxMovingTurnRate, maxMovingTurnRate);
                 Vector3 local = Quaternion.Inverse(transform.rotation) * move.normalized;
-                float gait = !IsCrouching && running ? JogGait : WalkGait;
+                gait = !IsCrouching && running ? 2 : 1;
                 moveX = local.x * gait;
                 moveY = local.z * gait;
                 if (animator != null) animator.ResetTrigger("QuickTurn");
@@ -333,20 +340,35 @@ public class PlayerController : MonoBehaviour
         }
         else
         {
-            if (animator != null) animator.ResetTrigger("QuickTurn");
             bool free = !IsCrouching;
+            bool unarmed = IsHolstered;
+            bool quickTurn = false;
             if (wantsToMove)
             {
+                gait = !running || IsCrouching ? 1 : Status == "DANGER" ? 2 : 3;
                 float error = Mathf.DeltaAngle(yaw, Quaternion.LookRotation(move).eulerAngles.y);
-                // Standing and facing well away, she steps round on the spot first and sets off once nearly there.
-                if (!ClipTag(MoveTag) && Mathf.Abs(error) > (free ? freeTurnOnSpotAngle : turnOnSpotAngle)) turningOnSpot = true;
-                else if (Mathf.Abs(error) < 30f) turningOnSpot = false;
                 turnSide = error < 0f ? -1 : 1;
+                bool onTheMove = ClipTag(MoveTag);
+                // Holstered and standing, a turn of more than unarmedQuickTurnMax is stepped round on the
+                // spot, since two quarter turns would take seconds.
+                if (unarmed && !onTheMove && Mathf.Abs(error) > unarmedQuickTurnMax) turningOnSpot = true;
+                else if (unarmed && !turningOnSpot && !clipTurning && animator != null && rootMotion != null
+                    && Mathf.Abs(error) > (onTheMove ? unarmedMovingTurnAngle : unarmedTurnAngle) && (!onTheMove || (gait < 3 && !IsCrouching)))
+                {
+                    // Holstered, the Mobility pack turns her: a quarter turn from a stand (crouched too),
+                    // or its turn on the move from a walk or a jog.
+                    animator.SetInteger("TurnSide", turnSide);
+                    animator.SetTrigger("QuickTurn");
+                    quickTurn = true;
+                    turningOnSpot = false;
+                }
+                // Standing and facing well away, she steps round on the spot first and sets off once nearly there.
+                else if (!unarmed && !onTheMove && Mathf.Abs(error) > (free ? freeTurnOnSpotAngle : turnOnSpotAngle)) turningOnSpot = true;
+                else if (Mathf.Abs(error) < 30f) turningOnSpot = false;
                 if (!turningOnSpot)
                 {
                     float maxRate = free ? freeMaxTurnRate : maxMovingTurnRate;
                     targetRate = Mathf.Clamp(error * turnResponse, -maxRate, maxRate);
-                    float gait = IsCrouching ? WalkGait : !running ? WalkGait : Status == "DANGER" ? JogGait : RunGait;
                     // A sharp turn slows her, so she curves round rather than running a wide arc.
                     float sharpness = Mathf.Clamp01(1f - (Mathf.Abs(error) - 45f) / 120f);
                     if (free) sharpness = Mathf.Max(sharpness, sharpTurnSpeedShare);
@@ -357,6 +379,7 @@ public class PlayerController : MonoBehaviour
             {
                 turningOnSpot = false;
             }
+            if (!quickTurn && animator != null) animator.ResetTrigger("QuickTurn");
         }
 
         // The clip turns her on the spot; on the move, turns build up and ease off rather than snapping.
@@ -399,7 +422,8 @@ public class PlayerController : MonoBehaviour
 
     void TryJump()
     {
-        if (airborne || jumpTimer > 0f || !controller.isGrounded) return;
+        // The Mobility pack's jumps are not in: holstered, she doesn't jump.
+        if (airborne || jumpTimer > 0f || !controller.isGrounded || IsHolstered) return;
         // Jumping from a crouch only gets her up.
         if (IsCrouching)
         {
@@ -532,10 +556,9 @@ public class PlayerController : MonoBehaviour
         if (animator != null) animator.SetTrigger("Draw");
     }
 
-    // She holsters only standing still: the pack has no movement without the pistol in hand.
     void StartHolster()
     {
-        if (IsHolstered || weaponAction != WeaponAction.None || IsReloading || gunHolsterSocket == null || IsDead || wantsToMove) return;
+        if (IsHolstered || weaponAction != WeaponAction.None || IsReloading || gunHolsterSocket == null || IsDead) return;
         weaponAction = WeaponAction.Holstering;
         weaponTimer = 0f;
         if (animator != null) animator.SetTrigger("Holster");
@@ -554,6 +577,7 @@ public class PlayerController : MonoBehaviour
 
     int Stance()
     {
+        if (IsHolstered) return IsCrouching ? UnarmedCrouchStance : Status == "DANGER" ? UnarmedHurtStance : UnarmedStance;
         if (IsCrouching) return IsAiming ? CrouchAimStance : CrouchStance;
         if (IsAiming) return AimStance;
         return Status == "DANGER" ? HurtStance : RelaxedStance;
@@ -571,7 +595,9 @@ public class PlayerController : MonoBehaviour
         animator.SetFloat("MoveX", moveX, 0.1f, dt);
         animator.SetFloat("MoveY", moveY, 0.15f, dt);
         // Steering as fast as the pack's circle loops turn leans her fully into the curve.
-        float leanRate = stance == AimStance ? Mathf.Lerp(p.aimWalkLeanRate, p.aimJogLeanRate, Mathf.Clamp01(moveY - WalkGait)) : p.runLeanRate;
+        float leanRate = stance == AimStance ? Mathf.Lerp(p.aimWalkLeanRate, p.aimJogLeanRate, Mathf.Clamp01(moveY - WalkGait))
+            : IsHolstered ? (moveY > JogGait ? p.unarmedRunLeanRate : moveY > WalkGait ? p.unarmedJogLeanRate : p.unarmedWalkLeanRate)
+            : p.runLeanRate;
         animator.SetFloat("Turn", Mathf.Clamp(turnRate / Mathf.Max(1f, leanRate), -1f, 1f), 0.2f, dt);
         animator.SetInteger("Stance", stance);
         animator.SetBool("IsAiming", IsAiming);
@@ -581,6 +607,9 @@ public class PlayerController : MonoBehaviour
         animator.SetBool("Grounded", !airborne);
         animator.SetBool("RapidFire", rapidFire);
         animator.SetBool("Unarmed", IsHolstered);
+        animator.SetInteger("Gait", gait);
+        unarmedBlend = Mathf.MoveTowards(unarmedBlend, IsHolstered ? 1f : 0f, 4f * dt);
+        animator.SetFloat("UnarmedBlend", unarmedBlend);
         animator.SetFloat("CrouchBlend", CrouchAmount);
 
         // Where the camera looks: up and down for the pistol or the head, and how far the body still
@@ -595,8 +624,10 @@ public class PlayerController : MonoBehaviour
         if (aimLayer >= 0) animator.SetLayerWeight(aimLayer, aimWeight);
         if (lookLayer >= 0) animator.SetLayerWeight(lookLayer, lookWeight * 0.7f);
 
-        // Standing still a while with the pistol in hand, she looks around; the wait starts over in a new stance.
-        bool still = (stance == RelaxedStance || stance == AimStance) && stance == lastStance && !wantsToMove && !turningOnSpot && !IsHolstered && !IsReloading && weaponAction == WeaponAction.None;
+        // Standing still a while, she looks around (holstered: waits or talks to herself, picked afresh
+        // each time); the wait starts over in a new stance.
+        bool still = (stance == RelaxedStance || stance == AimStance || stance == UnarmedStance) && stance == lastStance && !wantsToMove && !turningOnSpot && !IsReloading && weaponAction == WeaponAction.None;
+        if (!still && idleTime > 0f) animator.SetInteger("IdleVariant", Random.Range(0, 2));
         idleTime = still ? idleTime + Time.deltaTime : 0f;
         lastStance = stance;
         animator.SetFloat("IdleTime", idleTime);

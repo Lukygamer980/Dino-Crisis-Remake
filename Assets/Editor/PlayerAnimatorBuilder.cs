@@ -10,15 +10,17 @@ using Object = UnityEngine.Object;
 //
 // The model is picked in the Player Character asset (see PlayerCharacterSetup); by default it is the
 // pack's own MotusMan, the skeleton the clips were recorded on. Every clip plays at the speed it was
-// recorded at, except the turn-in-place loops (TurnInPlaceSpeed), and the pack's root motion moves
+// recorded at, except turns on the spot (TurnInPlaceSpeed, UnarmedQuickTurnSpeed), and root motion moves
 // her: PlayerController hands each frame's animated step to the CharacterController, so her feet
 // carry her exactly as far as they step. Turns on the spot and the quarter turns turn her by their
 // own root rotation. On the move PlayerController steers her toward the stick, and the pack's circle
 // loops lean her into the curve.
 //
-// The pack only moves with the pistol in hand: its holster and draw clips connect to the "MOB stand"
-// of MocapOnline's separate Mobility pack. Holstered, she stands in that pose (the last frame of the
-// holster clip, on the upper body); as soon as she moves, PlayerController draws the pistol.
+// With the pistol holstered she moves on MocapOnline's Mobility pack (Assets/Animations/Mobility_Basic),
+// which the pistol pack's holster and draw clips are made to connect to through its relaxed stand
+// ("MOB stand"): standing, walking, jogging and running in eight directions, crouching, starts and
+// stops, turns on the spot and on the move, and the transitions between standing and crouching. Its
+// clips keep the import settings the pack ships with; only the turning ones turn by root motion.
 //
 // Fire, reload, draw and holster play on an upper-body layer, so she can do them on the move; two
 // additive layers point the pistol, or the head, where the camera looks.
@@ -38,6 +40,9 @@ public static class PlayerAnimatorBuilder
     const string AimOffsets = Pack + "/Animation/Aim_Offsets/";
     // The pack's files on the Unreal mannequin's skeleton share the avatar of this one.
     const string MannequinSource = Loops + "W1_Jog_F_Loop.fbx";
+    // The Mobility pack, and a hurt idle (from Mixamo) for standing badly hurt with empty hands.
+    const string Mobility = "Assets/Animations/Mobility_Basic/Animation/";
+    const string InjuredIdlePath = "Assets/Animations/Injured Idle.fbx";
     const string Generated = "Assets/Characters/Player/Generated";
 
     // Gaits in the movement blends, as the MoveX/MoveY radius PlayerController asks for: the clips
@@ -46,13 +51,15 @@ public static class PlayerAnimatorBuilder
     // The turn-in-place loops step 45 degrees in 0.67 s, so a half turn takes 2.7 s at their own
     // pace. They play this much faster; the feet still step the whole turn.
     public const float TurnInPlaceSpeed = 2f;
+    // The Mobility pack's quarter turns from a stand take about 3 s; they play this much faster.
+    public const float UnarmedQuickTurnSpeed = 1.5f;
     // The continuous-fire loops fire four rounds a cycle; holding the trigger fires at that pace.
     const int RapidShotsPerLoop = 4;
     // A hit is the first 20 frames of falling backward: she staggers, and catches herself before the fall.
     const int HitFrames = 20;
 
     // Stances, as the Stance parameter that PlayerController sets.
-    public const int Relaxed = 1, Aim = 2, Crouch = 3, CrouchAim = 4, Hurt = 5;
+    public const int Relaxed = 1, Aim = 2, Crouch = 3, CrouchAim = 4, Hurt = 5, Unarmed = 6, UnarmedCrouch = 7, UnarmedHurt = 8;
     // Jumps, as the JumpKind parameter.
     public const int JumpStand = 0, JumpRun = 1, JumpAimStand = 2, JumpAimForward = 3, JumpAimLeft = 4, JumpAimRight = 5;
 
@@ -196,9 +203,9 @@ public static class PlayerAnimatorBuilder
             toPistol = PackClip(HolsterAndFire + "W2_Stand_Aim_Swap_To_W1.fbx"),
             crouchToPistol = PackClip(HolsterAndFire + "W2_Crouch_Aim_Swap_To_W1.fbx"),
         };
-        // The MOB stand and crouch: the holster clips' last frames, standing and crouched with empty hands.
-        upper.mobStand = PackTake(HolsterAndFire + "W1_Aim_Equip_Return_To_MOB.fbx", "W1_MOB_Stand", last: true, frames: 1);
-        upper.mobCrouch = PackTake(HolsterAndFire + "W1_Crouch_Aim_Equip_Return_To_MOB.fbx", "W1_MOB_Crouch", last: true, frames: 1);
+        // An earlier build held the holster clips' last frames as the holstered pose.
+        RemoveTake(HolsterAndFire + "W1_Aim_Equip_Return_To_MOB.fbx", "W1_MOB_Stand");
+        RemoveTake(HolsterAndFire + "W1_Crouch_Aim_Equip_Return_To_MOB.fbx", "W1_MOB_Crouch");
 
         string[] deathFiles = { "W1_Stand_Relaxed_Death_F", "W1_Stand_Relaxed_Death_B", "W1_Stand_Relaxed_Death_L", "W1_Stand_Relaxed_Death_R" };
         var deaths = new AnimationClip[4];
@@ -290,6 +297,71 @@ public static class PlayerAnimatorBuilder
         ca.start = ca.Add("First Step", crouchAimStart, "Move");
         AnimatorState caStop = ca.Add("Stop", crouchAimStop, "Move");
 
+        // ---- Without the pistol: the Mobility pack ----
+        AnimationClip M(string name, bool turn = false) => MobClip(Mobility + "Root_Motion/MOB1_" + name + ".fbx", turn);
+        AnimationClip mIdle = M("Stand_Relaxed_Idle_v2");
+        AnimationClip injuredIdle = ExtraClip(InjuredIdlePath, loop: true);
+        AnimationClip mWalk = M("Walk_F_Loop"), mJog = M("Jog_F_Loop"), mRun = M("Run_F_Loop");
+        (AnimationClip left, AnimationClip right) mWalkCurve = (M("Walk_L_CIR_Loop", true), M("Walk_R_CIR_Loop", true));
+        (AnimationClip left, AnimationClip right) mJogCurve = (M("Jog_L_CIR_Loop", true), M("Jog_R_CIR_Loop", true));
+        (AnimationClip left, AnimationClip right) mRunCurve = (M("Run_L_CIR_Loop", true), M("Run_R_CIR_Loop", true));
+        const float D = 0.7071f;
+        // Standing free: walk, jog and run in eight directions (the run has no backward steps); forward,
+        // each leans into a curve on Turn.
+        BlendTree unarmedMove = DirectionalTree("Unarmed Move", mIdle,
+            (LeanTree("Unarmed Walk Lean", mWalkCurve.left, mWalk, mWalkCurve.right), new Vector2(0f, WalkGait)),
+            (LeanTree("Unarmed Jog Lean", mJogCurve.left, mJog, mJogCurve.right), new Vector2(0f, JogGait)),
+            (LeanTree("Unarmed Run Lean", mRunCurve.left, mRun, mRunCurve.right), new Vector2(0f, RunGait)),
+            (M("Walk_B_Loop"), new Vector2(0f, -WalkGait)), (M("Jog_B_Loop"), new Vector2(0f, -JogGait)),
+            (M("Walk_L_Loop"), new Vector2(-WalkGait, 0f)), (M("Jog_L_Loop"), new Vector2(-JogGait, 0f)), (M("Run_L_Loop"), new Vector2(-RunGait, 0f)),
+            (M("Walk_R_Loop"), new Vector2(WalkGait, 0f)), (M("Jog_R_Loop"), new Vector2(JogGait, 0f)), (M("Run_R_Loop"), new Vector2(RunGait, 0f)),
+            (M("Walk_FL_Loop"), new Vector2(-D, D) * WalkGait), (M("Jog_FL_Loop"), new Vector2(-D, D) * JogGait), (M("Run_FL_Loop"), new Vector2(-D, D) * RunGait),
+            (M("Walk_FR_Loop"), new Vector2(D, D) * WalkGait), (M("Jog_FR_Loop"), new Vector2(D, D) * JogGait), (M("Run_FR_Loop"), new Vector2(D, D) * RunGait),
+            (M("Walk_BL_BkPd_Loop"), new Vector2(-D, -D) * WalkGait), (M("Jog_BL_BkPd_Loop"), new Vector2(-D, -D) * JogGait),
+            (M("Walk_BR_BkPd_Loop"), new Vector2(D, -D) * WalkGait), (M("Jog_BR_BkPd_Loop"), new Vector2(D, -D) * JogGait));
+        AnimationClip[] mStarts = { M("Stand_Relaxed_To_Walk_F"), M("Stand_Relaxed_To_Jog_F"), M("Stand_Relaxed_To_Run_F") };
+        AnimationClip[] mStops = { M("Walk_F_To_Stand_Relaxed_RU"), M("Jog_F_To_Stand_Relaxed_RU"), M("Run_F_To_Stand_Relaxed_RU") };
+
+        // Standing without the pistol, and badly hurt without it (the same moves, a hurt stand, no run).
+        // A big turn from a stand is a quarter turn; walking or jogging, a sharp one is the pack's
+        // turn on the move. Standing still a while, she waits or talks to herself.
+        foreach ((int id, string name, AnimationClip stand) in new[] { (Unarmed, "Unarmed", mIdle), (UnarmedHurt, "Unarmed Hurt", injuredIdle) })
+        {
+            var s = stances[id] = new StanceStates(machine, name);
+            s.idle = s.Add("Idle", stand);
+            s.move = s.Add("Move", unarmedMove, "Move");
+            (s.turnLeft, s.turnRight) = (s.Add("Turn Left", M("Stand_Rlx_Turn_In_Place_L_Loop", true), "Turn"), s.Add("Turn Right", M("Stand_Rlx_Turn_In_Place_R_Loop", true), "Turn"));
+            (s.quickLeft, s.quickRight) = (s.Add("Quick Turn Left", M("Stand_Relaxed_L_90", true), "Turn"), s.Add("Quick Turn Right", M("Stand_Relaxed_R_90", true), "Turn"));
+            s.quickLeft.speed = s.quickRight.speed = UnarmedQuickTurnSpeed;
+            s.starts = new[] { s.Add("Start Walk", mStarts[0], "Move"), s.Add("Start Jog", mStarts[1], "Move"), s.Add("Start Run", mStarts[2], "Move") };
+            s.stops = new[] { s.Add("Walk Stop", mStops[0], "Move"), s.Add("Jog Stop", mStops[1], "Move"), s.Add("Run Stop", mStops[2], "Move") };
+            s.moveTurns = new[]
+            {
+                (s.Add("Walk Turn Left", M("Walk_L_90", true), "Turn"), -1, 0f, 1.5f), (s.Add("Walk Turn Right", M("Walk_R_90", true), "Turn"), 1, 0f, 1.5f),
+                (s.Add("Jog Turn Left", M("Jog_L_90", true), "Turn"), -1, 1.5f, 2.5f), (s.Add("Jog Turn Right", M("Jog_R_90", true), "Turn"), 1, 1.5f, 2.5f),
+            };
+            if (id == Unarmed)
+            {
+                s.fidget = s.Add("Wait", M("Stand_Relaxed_Fgt_v1"));
+                s.fidgetAlt = s.Add("Talk", M("Stand_Relaxed_Conv_v1"));
+            }
+        }
+
+        // Crouched without the pistol: creeps in eight directions, sets off and stops with the pack's steps.
+        var uc = stances[UnarmedCrouch] = new StanceStates(machine, "Unarmed Crouch");
+        AnimationClip mCrouchIdle = M("Crouch_Idle_V2");
+        uc.idle = uc.Add("Idle", mCrouchIdle);
+        uc.move = uc.Add("Move", DirectionalTree("Unarmed Crouch Move", mCrouchIdle,
+            (M("CrouchWalk_F_Loop"), new Vector2(0f, WalkGait)), (M("CrouchWalk_B_Loop"), new Vector2(0f, -WalkGait)),
+            (M("CrouchWalk_L_Loop"), new Vector2(-WalkGait, 0f)), (M("CrouchWalk_R_Loop"), new Vector2(WalkGait, 0f)),
+            (M("CrouchWalk_FL_Loop"), new Vector2(-D, D)), (M("CrouchWalk_FR_Loop"), new Vector2(D, D)),
+            (M("CrouchWalk_BL_BkPd_Loop"), new Vector2(-D, -D)), (M("CrouchWalk_BR_BkPd_Loop"), new Vector2(D, -D))), "Move");
+        (uc.turnLeft, uc.turnRight) = (uc.Add("Turn Left", M("Crouch_Rlx_Turn_In_Place_L_Loop", true), "Turn"), uc.Add("Turn Right", M("Crouch_Rlx_Turn_In_Place_R_Loop", true), "Turn"));
+        (uc.quickLeft, uc.quickRight) = (uc.Add("Quick Turn Left", M("Crouch_L_90", true), "Turn"), uc.Add("Quick Turn Right", M("Crouch_R_90", true), "Turn"));
+        uc.quickLeft.speed = uc.quickRight.speed = UnarmedQuickTurnSpeed;
+        uc.start = uc.Add("First Step", M("Crouch_To_CrouchWalk_F"), "Move");
+        uc.stops = new[] { uc.Add("Stop", M("CrouchWalk_F_To_Crouch_RU"), "Move") };
+
         foreach (StanceStates s in stances.Values)
         {
             foreach (AnimatorState turn in new[] { s.turnLeft, s.turnRight }) turn.speed = TurnInPlaceSpeed;
@@ -306,6 +378,8 @@ public static class PlayerAnimatorBuilder
         AnimatorState aimUp = AddState(changes, "Crouch Aim To Aim", crouchAimToAim);
         AnimatorState crouchRaise = AddState(changes, "Crouch To Crouch Aim", crouchToCrouchAim);
         AnimatorState crouchLower = AddState(changes, "Crouch Aim To Crouch", crouchAimToCrouch);
+        AnimatorState unarmedDown = AddState(changes, "Unarmed To Crouch", M("Stand_Relaxed_To_Crouch"));
+        AnimatorState unarmedUp = AddState(changes, "Unarmed Crouch To Stand", M("Crouch_To_Stand_Relaxed"));
 
         AnimatorStateMachine air = machine.AddStateMachine("Jump");
         var jumpStates = new AnimatorState[jumpNames.Length, 3];
@@ -319,11 +393,19 @@ public static class PlayerAnimatorBuilder
 
         AnimatorStateMachine reactions = machine.AddStateMachine("Hit And Death");
         AnimatorState hitState = AddState(reactions, "Hit", hit);
+        AnimatorState unarmedHitState = AddState(reactions, "Unarmed Hit", MobTake(Mobility + "Root_Motion/MOB1_Stand_Relaxed_Death_B.fbx", "MOB1_Stand_Relaxed_Hit", HitFrames));
         var deathStates = new AnimatorState[4];
+        var unarmedDeathStates = new AnimatorState[4];
         string[] deathNames = { "Fall Forward", "Fall Backward", "Fall Left", "Fall Right" };
-        for (int i = 0; i < 4; i++) deathStates[i] = AddState(reactions, "Dead " + deathNames[i], deaths[i]);
+        string[] deathSides = { "F", "B", "L", "R" };
+        for (int i = 0; i < 4; i++)
+        {
+            deathStates[i] = AddState(reactions, "Dead " + deathNames[i], deaths[i]);
+            unarmedDeathStates[i] = AddState(reactions, "Unarmed Dead " + deathNames[i], M("Stand_Relaxed_Death_" + deathSides[i]));
+        }
 
-        machine.defaultState = stances[Relaxed].idle;
+        // She starts with the pistol holstered.
+        machine.defaultState = stances[Unarmed].idle;
 
         // ---- Base layer transitions ----
         // Raising or lowering the pistol from a stand plays the matching clip; anything else crossfades.
@@ -333,8 +415,10 @@ public static class PlayerAnimatorBuilder
         Go(ca.idle, aimUp, 0.15f, Is("Stance", Aim));
         Go(c.idle, crouchRaise, 0.15f, Is("Stance", CrouchAim));
         Go(ca.idle, crouchLower, 0.15f, Is("Stance", Crouch));
+        Go(stances[Unarmed].idle, unarmedDown, 0.2f, Is("Stance", UnarmedCrouch), Off("Moving"));
+        Go(uc.idle, unarmedUp, 0.2f, Is("Stance", Unarmed), Off("Moving"));
         // Each plays out into the stance it leads to, unless she sets off or changes stance again.
-        foreach ((AnimatorState change, int target) in new[] { (raise, Aim), (lower, Relaxed), (aimDown, CrouchAim), (aimUp, Aim), (crouchRaise, CrouchAim), (crouchLower, Crouch) })
+        foreach ((AnimatorState change, int target) in new[] { (raise, Aim), (lower, Relaxed), (aimDown, CrouchAim), (aimUp, Aim), (crouchRaise, CrouchAim), (crouchLower, Crouch), (unarmedDown, UnarmedCrouch), (unarmedUp, Unarmed) })
         {
             Go(change, stances[target].move, 0.25f, Is("Stance", target), On("Moving"));
             StanceChanges(change, stances, target, 0.3f);
@@ -355,6 +439,16 @@ public static class PlayerAnimatorBuilder
                 Go(turn, s.idle, 0.2f, Off("TurnInPlace"));
                 Go(turn, turn == s.turnLeft ? s.turnRight : s.turnLeft, 0.2f, On("TurnInPlace"), Is("TurnSide", -side));
             }
+            if (s.starts != null)
+            {
+                // Setting off from a stand into the gait she asks for, before the plain blend into moving.
+                for (int g = 0; g < s.starts.Length; g++)
+                {
+                    Go(s.idle, s.starts[g], 0.15f, On("Moving"), Is("Gait", g + 1));
+                    Go(s.starts[g], s.idle, 0.25f, Off("Moving"));
+                    ExitTo(s.starts[g], s.move, 0.85f, 0.2f);
+                }
+            }
             if (s.start != null)
             {
                 Go(s.idle, s.start, 0.15f, On("Moving"), Above("MoveY", 0.3f), Above("MoveX", -0.4f), Below("MoveX", 0.4f));
@@ -365,47 +459,81 @@ public static class PlayerAnimatorBuilder
             if (s.fidget != null)
             {
                 // Standing still a while, she looks around; setting off or turning cuts the look short.
-                Go(s.idle, s.fidget, 0.4f, Above("IdleTime", 8f)).interruptionSource = TransitionInterruptionSource.Source;
-                Go(s.fidget, s.move, 0.3f, On("Moving"));
-                Go(s.fidget, s.idle, 0.3f, On("TurnInPlace"));
-                ExitTo(s.fidget, s.idle, 0.95f);
+                foreach ((AnimatorState look, int variant) in new[] { (s.fidget, 0), (s.fidgetAlt, 1) })
+                {
+                    if (look == null) continue;
+                    AnimatorStateTransition into = Go(s.idle, look, 0.4f, Above("IdleTime", 8f));
+                    if (s.fidgetAlt != null) into.AddCondition(AnimatorConditionMode.Equals, variant, "IdleVariant");
+                    into.interruptionSource = TransitionInterruptionSource.Source;
+                    Go(look, s.move, 0.3f, On("Moving"));
+                    Go(look, s.idle, 0.3f, On("TurnInPlace"));
+                    Go(look, s.idle, 0.3f, On("QuickTurn"));
+                    ExitTo(look, s.idle, 0.95f);
+                }
             }
         }
 
-        // Stops, from the pace she let go at: the pack's last strides, before the plain fade to a stand.
+        // Stops, from the gait she let go in (Gait keeps it once she stops asking to move): the pack's
+        // last strides, before the plain fade to a stand.
         foreach (int id in new[] { Relaxed, Hurt })
         {
             StanceStates s = stances[id];
-            Go(s.move, s.stop, 0.2f, Off("Moving"), Above("MoveY", 2.4f));
+            Go(s.move, s.stop, 0.2f, Off("Moving"), Is("Gait", 3));
             Go(s.stop, s.move, 0.2f, On("Moving"));
             ExitTo(s.stop, s.idle, 0.9f);
         }
-        Go(a.move, aJogStop, 0.2f, Off("Moving"), Above("MoveY", 1.5f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
-        Go(a.move, aWalkStop, 0.2f, Off("Moving"), Above("MoveY", 0.6f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
+        Go(a.move, aJogStop, 0.2f, Off("Moving"), Is("Gait", 2), Above("MoveY", 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
+        Go(a.move, aWalkStop, 0.2f, Off("Moving"), Is("Gait", 1), Above("MoveY", 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
         foreach (AnimatorState stop in new[] { aWalkStop, aJogStop })
         {
             Go(stop, a.move, 0.2f, On("Moving"));
             ExitTo(stop, a.idle, 0.9f);
         }
-        Go(ca.move, caStop, 0.2f, Off("Moving"), Above("MoveY", 0.6f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
+        Go(ca.move, caStop, 0.2f, Off("Moving"), Above("MoveY", 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
         Go(caStop, ca.move, 0.2f, On("Moving"));
         ExitTo(caStop, ca.idle, 0.9f);
+        // Without the pistol: the pack's last steps from a run, a jog or a walk, and its turns on the move.
+        foreach (int id in new[] { Unarmed, UnarmedHurt, UnarmedCrouch })
+        {
+            StanceStates s = stances[id];
+            for (int g = s.stops.Length - 1; g >= 0; g--)
+            {
+                Go(s.move, s.stops[g], 0.2f, Off("Moving"), Is("Gait", g + 1), Above("MoveY", 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
+                Go(s.stops[g], s.move, 0.2f, On("Moving"));
+                ExitTo(s.stops[g], s.idle, 0.9f);
+            }
+            if (s.moveTurns == null) continue;
+            foreach ((AnimatorState turn, int side, float above, float below) in s.moveTurns)
+            {
+                Go(s.move, turn, 0.15f, On("QuickTurn"), Is("TurnSide", side), Above("MoveY", above), Below("MoveY", below));
+                ExitTo(turn, s.move, 0.85f, 0.2f, On("Moving"));
+                ExitTo(turn, s.idle, 0.85f, 0.25f, Off("Moving"));
+            }
+        }
         foreach (StanceStates s in stances.Values) Go(s.move, s.idle, 0.3f, Off("Moving"));
 
         // Death first, so a pending hit or jump can't stand her back up.
         for (int i = 0; i < 4; i++)
         {
-            AnimatorStateTransition die = machine.AddAnyStateTransition(deathStates[i]);
-            die.duration = 0.1f;
-            die.canTransitionToSelf = false;
-            die.AddCondition(AnimatorConditionMode.If, 0f, "Dead");
-            die.AddCondition(AnimatorConditionMode.Equals, i, "DeathDir");
+            foreach ((AnimatorState death, bool unarmed) in new[] { (deathStates[i], false), (unarmedDeathStates[i], true) })
+            {
+                AnimatorStateTransition die = machine.AddAnyStateTransition(death);
+                die.duration = 0.1f;
+                die.canTransitionToSelf = false;
+                die.AddCondition(AnimatorConditionMode.If, 0f, "Dead");
+                die.AddCondition(AnimatorConditionMode.Equals, i, "DeathDir");
+                die.AddCondition(unarmed ? AnimatorConditionMode.If : AnimatorConditionMode.IfNot, 0f, "Unarmed");
+            }
         }
-        AnimatorStateTransition flinch = machine.AddAnyStateTransition(hitState);
-        flinch.duration = 0.05f;
-        flinch.canTransitionToSelf = true;
-        flinch.AddCondition(AnimatorConditionMode.If, 0f, "Hit");
-        ExitBy(hitState, stances, 0.8f);
+        foreach ((AnimatorState state, bool unarmed) in new[] { (hitState, false), (unarmedHitState, true) })
+        {
+            AnimatorStateTransition flinch = machine.AddAnyStateTransition(state);
+            flinch.duration = 0.05f;
+            flinch.canTransitionToSelf = true;
+            flinch.AddCondition(AnimatorConditionMode.If, 0f, "Hit");
+            flinch.AddCondition(unarmed ? AnimatorConditionMode.If : AnimatorConditionMode.IfNot, 0f, "Unarmed");
+            ExitBy(state, stances, 0.8f);
+        }
 
         // Jumps: the start, the air, the landing, then back to whatever she was doing.
         var windUps = new float[jumpNames.Length];
@@ -429,12 +557,24 @@ public static class PlayerAnimatorBuilder
         Motion standAim = AimOffsetTree("Stand Aim Offset", "Stand_Aim");
         Motion crouchAim = AimOffsetTree("Crouch Aim Offset", "Crouch_Aim");
         AddLayer("Aim Offset", Tree1D("Aim Offset", "CrouchBlend", (standAim, 0f, 1f, 0f), (crouchAim, 1f, 1f, 0f)), additive: true);
-        AddLayer("Look Offset", Tree1D("Look Offset", "AimPitch",
+        Motion pistolLook = Tree1D("Pistol Look", "AimPitch",
             (Additive("Look Down", PackClip(AimOffsets + "W1_Stand_Relaxed_Look_D90.fbx"), lookCenter), -1f, 1f, 0f),
             (Additive("Look Center", lookCenter, lookCenter), 0f, 1f, 0f),
-            (Additive("Look Up", PackClip(AimOffsets + "W1_Stand_Relaxed_Look_U90.fbx"), lookCenter), 1f, 1f, 0f)), additive: true);
+            (Additive("Look Up", PackClip(AimOffsets + "W1_Stand_Relaxed_Look_U90.fbx"), lookCenter), 1f, 1f, 0f));
+        // Without the pistol, the Mobility pack's own look poses, standing and crouched.
+        Motion UnarmedLook(string prefix)
+        {
+            AnimationClip center = M2(prefix + "_Look_Center");
+            return Tree1D(prefix.Replace("_", " ") + " Look", "AimPitch",
+                (Additive("Unarmed " + prefix + " Look Down", M2(prefix + "_Look_D90"), center), -1f, 1f, 0f),
+                (Additive("Unarmed " + prefix + " Look Center", center, center), 0f, 1f, 0f),
+                (Additive("Unarmed " + prefix + " Look Up", M2(prefix + "_Look_U90"), center), 1f, 1f, 0f));
+        }
+        AnimationClip M2(string name) => MobClip(Mobility + "Aim_Offsets/MOB1_" + name + ".fbx");
+        Motion unarmedLook = Tree1D("Unarmed Look", "CrouchBlend", (UnarmedLook("Stand_Relaxed"), 0f, 1f, 0f), (UnarmedLook("Crouch"), 1f, 1f, 0f));
+        AddLayer("Look Offset", Tree1D("Look Offset", "UnarmedBlend", (pistolLook, 0f, 1f, 0f), (unarmedLook, 1f, 1f, 0f)), additive: true);
 
-        WriteProfile(upper, windUps, (runCurveLeft, runCurveRight), (aimWalkCurveLeft, aimWalkCurveRight), (aimJogCurveLeft, aimJogCurveRight));
+        WriteProfile(upper, windUps, (runCurveLeft, runCurveRight), (aimWalkCurveLeft, aimWalkCurveRight), (aimJogCurveLeft, aimJogCurveRight), mWalkCurve, mJogCurve, mRunCurve);
 
         // HomebrewIK places the feet in OnAnimatorIK, which only runs on a layer with its IK pass on.
         AnimatorControllerLayer[] layers = controller.layers;
@@ -451,7 +591,11 @@ public static class PlayerAnimatorBuilder
     class StanceStates
     {
         readonly AnimatorStateMachine machine;
-        public AnimatorState idle, move, turnLeft, turnRight, quickLeft, quickRight, start, stop, fidget;
+        public AnimatorState idle, move, turnLeft, turnRight, quickLeft, quickRight, start, stop, fidget, fidgetAlt;
+        // Setting off into a walk, a jog or a run; the last steps from each; and turns on the move,
+        // with the side and the MoveY range they play in.
+        public AnimatorState[] starts, stops;
+        public (AnimatorState state, int side, float above, float below)[] moveTurns;
         public readonly List<AnimatorState> all = new();
 
         public StanceStates(AnimatorStateMachine root, string name) => machine = root.AddStateMachine(name);
@@ -514,19 +658,15 @@ public static class PlayerAnimatorBuilder
     {
         public AnimationClip fire, crouchFire, rapidFire, crouchRapidFire, reload, aimReload, crouchReload;
         public AnimationClip draw, crouchDraw, holster, crouchHolster, toSecond, crouchToSecond, toPistol, crouchToPistol;
-        public AnimationClip mobStand, mobCrouch;
     }
 
     // Everything here plays at the pack's own pace; a crouched and a standing clip of the same action
-    // blend on CrouchBlend. Holstered, the upper body holds the MOB stand or crouch.
+    // blend on CrouchBlend.
     static void BuildUpperBody(UpperBodyClips clips)
     {
         AnimatorStateMachine upper = AddLayer("Upper Body", null, additive: false);
         AnimatorState empty = upper.AddState("Empty");
-        AnimatorState holstered = AddState(upper, "Holstered", Tree1D("Holstered", "CrouchBlend", (clips.mobStand, 0f, 1f, 0f), (clips.mobCrouch, 1f, 1f, 0f)));
-        upper.defaultState = holstered;
-        Go(empty, holstered, 0.3f, On("Unarmed"));
-        Go(holstered, empty, 0.3f, Off("Unarmed"));
+        upper.defaultState = empty;
 
         Motion standReload = Tree1D("Stand Reload", "AimBlend", (clips.reload, 0f, 1f, 0f), (clips.aimReload, 1f, 1f, 0f));
         AnimatorState fireState = AddState(upper, "Fire", Tree1D("Fire", "CrouchBlend", (clips.fire, 0f, 1f, 0f), (clips.crouchFire, 1f, 1f, 0f)));
@@ -544,7 +684,7 @@ public static class PlayerAnimatorBuilder
             into.canTransitionToSelf = trigger == "Fire";
             into.AddCondition(AnimatorConditionMode.If, 0f, trigger);
             into.AddCondition(AnimatorConditionMode.IfNot, 0f, "IsDead");
-            ExitTo(state, state == holsterState ? holstered : empty, exit);
+            ExitTo(state, empty, exit);
         }
         foreach ((AnimatorState state, int weapon) in new[] { (toSecond, 2), (toPistol, 1) })
         {
@@ -729,7 +869,8 @@ public static class PlayerAnimatorBuilder
     // ---- What PlayerController needs to know of the clips ----
 
     static void WriteProfile(UpperBodyClips upper, float[] jumpWindUps, (AnimationClip left, AnimationClip right) runCurve,
-        (AnimationClip left, AnimationClip right) aimWalkCurve, (AnimationClip left, AnimationClip right) aimJogCurve)
+        (AnimationClip left, AnimationClip right) aimWalkCurve, (AnimationClip left, AnimationClip right) aimJogCurve,
+        (AnimationClip left, AnimationClip right) unarmedWalkCurve, (AnimationClip left, AnimationClip right) unarmedJogCurve, (AnimationClip left, AnimationClip right) unarmedRunCurve)
     {
         LocomotionProfile profile = AssetDatabase.LoadAssetAtPath<LocomotionProfile>(ProfilePath);
         if (profile == null)
@@ -749,6 +890,9 @@ public static class PlayerAnimatorBuilder
         profile.runLeanRate = (YawRate(runCurve.right) - YawRate(runCurve.left)) / 2f;
         profile.aimWalkLeanRate = (YawRate(aimWalkCurve.right) - YawRate(aimWalkCurve.left)) / 2f;
         profile.aimJogLeanRate = (YawRate(aimJogCurve.right) - YawRate(aimJogCurve.left)) / 2f;
+        profile.unarmedWalkLeanRate = (YawRate(unarmedWalkCurve.right) - YawRate(unarmedWalkCurve.left)) / 2f;
+        profile.unarmedJogLeanRate = (YawRate(unarmedJogCurve.right) - YawRate(unarmedJogCurve.left)) / 2f;
+        profile.unarmedRunLeanRate = (YawRate(unarmedRunCurve.right) - YawRate(unarmedRunCurve.left)) / 2f;
         EditorUtility.SetDirty(profile);
     }
 
@@ -970,6 +1114,85 @@ public static class PlayerAnimatorBuilder
         return whole != null ? Load(path, name) : null;
     }
 
+    // A Mobility pack clip, with the import settings the pack ships with (Humanoid, copying the pack's
+    // MotusMan avatar, loops, travel as root motion, turn and height in the pose), except that a
+    // turning clip (`turn`) turns by root motion, or the turn would snap back at the end of each loop.
+    static AnimationClip MobClip(string path, bool turn = false)
+    {
+        if (AssetImporter.GetAtPath(path) is not ModelImporter importer) throw new InvalidOperationException("Missing " + path + ": import Unity_Mobility_27B_Basic.unitypackage into Assets/Animations.");
+        ModelImporterClipAnimation[] clips = importer.clipAnimations;
+        if (clips == null || clips.Length == 0) clips = importer.defaultClipAnimations;
+        if (turn && clips[0].lockRootRotation)
+        {
+            clips[0].lockRootRotation = false;
+            importer.clipAnimations = clips;
+            importer.SaveAndReimport();
+        }
+        return Load(path, clips[0].name);
+    }
+
+    // A Mobility pack clip's first `frames` frames as a clip of their own, next to the whole one.
+    static AnimationClip MobTake(string path, string name, int frames)
+    {
+        AnimationClip whole = MobClip(path);
+        var importer = (ModelImporter)AssetImporter.GetAtPath(path);
+        var clips = new List<ModelImporterClipAnimation>(importer.clipAnimations.Length > 0 ? importer.clipAnimations : importer.defaultClipAnimations);
+        ModelImporterClipAnimation first = clips[0];
+        ModelImporterClipAnimation take = clips.Find(c => c.name == name);
+        if (take == null || !Mathf.Approximately(take.lastFrame, first.firstFrame + frames))
+        {
+            clips.Remove(take);
+            clips.Add(new ModelImporterClipAnimation
+            {
+                name = name,
+                takeName = first.takeName,
+                firstFrame = first.firstFrame,
+                lastFrame = first.firstFrame + frames,
+                lockRootHeightY = first.lockRootHeightY,
+                keepOriginalPositionY = first.keepOriginalPositionY,
+                lockRootRotation = first.lockRootRotation,
+                keepOriginalOrientation = first.keepOriginalOrientation,
+            });
+            importer.clipAnimations = clips.ToArray();
+            importer.SaveAndReimport();
+        }
+        return whole != null ? Load(path, name) : null;
+    }
+
+    // A clip from outside the packs (the hurt idle), made Humanoid with its own avatar and kept in place.
+    static AnimationClip ExtraClip(string path, bool loop)
+    {
+        if (AssetImporter.GetAtPath(path) is not ModelImporter importer) throw new InvalidOperationException("Missing " + path);
+        if (importer.animationType != ModelImporterAnimationType.Human || importer.avatarSetup != ModelImporterAvatarSetup.CreateFromThisModel)
+        {
+            importer.animationType = ModelImporterAnimationType.Human;
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.SaveAndReimport();
+        }
+        ModelImporterClipAnimation[] clips = importer.clipAnimations;
+        if (clips == null || clips.Length == 0) clips = importer.defaultClipAnimations;
+        ModelImporterClipAnimation clip = clips[0];
+        if (clip.loopTime != loop || !clip.lockRootRotation || !clip.lockRootHeightY || !clip.lockRootPositionXZ)
+        {
+            clip.loopTime = loop;
+            clip.lockRootRotation = clip.lockRootHeightY = clip.lockRootPositionXZ = true;
+            clip.keepOriginalOrientation = clip.keepOriginalPositionY = clip.keepOriginalPositionXZ = true;
+            importer.clipAnimations = clips;
+            importer.SaveAndReimport();
+        }
+        return Load(path, clips[0].name);
+    }
+
+    // Takes out an extra clip an earlier build cut from a file.
+    static void RemoveTake(string path, string name)
+    {
+        if (AssetImporter.GetAtPath(path) is not ModelImporter importer) return;
+        var clips = new List<ModelImporterClipAnimation>(importer.clipAnimations);
+        if (clips.RemoveAll(c => c.name == name) == 0) return;
+        importer.clipAnimations = clips.ToArray();
+        importer.SaveAndReimport();
+    }
+
     static bool HasChild(Transform parent, string name)
     {
         foreach (Transform child in parent)
@@ -1075,18 +1298,20 @@ public static class PlayerAnimatorBuilder
 
     static void AddParameters()
     {
-        foreach (string name in new[] { "MoveX", "MoveY", "Turn", "AimPitch", "AimYaw", "AimBlend", "CrouchBlend", "IdleTime" })
+        foreach (string name in new[] { "MoveX", "MoveY", "Turn", "AimPitch", "AimYaw", "AimBlend", "CrouchBlend", "UnarmedBlend", "IdleTime" })
             controller.AddParameter(name, AnimatorControllerParameterType.Float);
         foreach (string name in new[] { "IsAiming", "Moving", "TurnInPlace", "Grounded", "IsDead", "RapidFire", "Unarmed" })
             controller.AddParameter(name, AnimatorControllerParameterType.Bool);
-        foreach (string name in new[] { "Stance", "JumpKind", "DeathDir", "TurnSide", "Weapon" })
+        foreach (string name in new[] { "Stance", "JumpKind", "DeathDir", "TurnSide", "Weapon", "Gait", "IdleVariant" })
             controller.AddParameter(name, AnimatorControllerParameterType.Int);
         foreach (string name in new[] { "Fire", "Reload", "Draw", "Holster", "Swap", "Jump", "QuickTurn", "Hit", "Dead" })
             controller.AddParameter(name, AnimatorControllerParameterType.Trigger);
         AnimatorControllerParameter[] parameters = controller.parameters;
         foreach (AnimatorControllerParameter parameter in parameters)
         {
-            if (parameter.name == "Stance") parameter.defaultInt = Relaxed;
+            if (parameter.name == "Stance") parameter.defaultInt = Unarmed;
+            if (parameter.name == "UnarmedBlend") parameter.defaultFloat = 1f;
+            if (parameter.name == "Gait") parameter.defaultInt = 1;
             if (parameter.name == "Grounded") parameter.defaultBool = true;
             if (parameter.name == "Unarmed") parameter.defaultBool = true;
             if (parameter.name == "Weapon") parameter.defaultInt = 1;

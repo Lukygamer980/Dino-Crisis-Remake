@@ -30,3 +30,6 @@ MonoBehaviour:
   runLeanRate: 116.666626
   aimWalkLeanRate: 37.71431
   aimJogLeanRate: 95.7144
+  unarmedWalkLeanRate: 83.33339
+  unarmedJogLeanRate: 118.535225
+  unarmedRunLeanRate: 101.78221

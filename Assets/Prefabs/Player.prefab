@@ -244,6 +244,9 @@ MonoBehaviour:
   turnOnSpotAngle: 50
   aimTurnAngle: 24
   quickTurnAngle: 80
+  unarmedTurnAngle: 60
+  unarmedMovingTurnAngle: 80
+  unarmedQuickTurnMax: 120
   sharpTurnSpeedShare: 0.35
   jumpSpeed: 4.6
   standingHeight: 1.7

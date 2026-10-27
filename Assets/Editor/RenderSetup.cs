@@ -27,7 +27,7 @@ public static class RenderSetup
     // Packs whose models the game places. Other packs' demo materials are left as they came.
     static readonly string[] UsedPacks =
     {
-        "Assets/Characters", "Assets/PBRVelociraptor", "Assets/FreakGames", "Assets/GeeKay3D", "Assets/Scenes/Pistol 92",
+        "Assets/Characters", "Assets/Animations", "Assets/PBRVelociraptor", "Assets/FreakGames", "Assets/GeeKay3D", "Assets/Scenes/Pistol 92",
         // The muzzle flash and the bullet impacts.
         "Assets/UnityTechnologies/ParticlePack/EffectExamples/Weapon Effects", "Assets/UnityTechnologies/ParticlePack/EffectExamples/Misc Effects/Materials",
     };

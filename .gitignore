@@ -40,3 +40,7 @@ crashlytics-build.properties
 # Over GitHub's 100 MB limit, and only the Blender source of an asset pack Unity doesn't read
 Assets/LoafbrrAssets/Interiors_A/Interiors_A_blend.zip
 Assets/LoafbrrAssets/Interiors_A/Interiors_A_blend.zip.meta
+
+# The Mobility pack as downloaded (over GitHub's 100 MB limit); its contents are imported in Assets/Animations/Mobility_Basic
+Assets/Animations/Unity_Mobility_27B_Basic.zip
+Assets/Animations/Unity_Mobility_27B_Basic.zip.meta
