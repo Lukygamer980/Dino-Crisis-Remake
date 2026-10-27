@@ -39,8 +39,6 @@ public class PlayerController : MonoBehaviour
     public float turnOnSpotAngle = 50f;
     // Aiming, with the camera this far round, she pivots a quarter turn at once.
     public float quickTurnAngle = 80f;
-    // The most she leans into a curve where no clip leans for her, in degrees.
-    public float maxLean = 7f;
     public float jumpSpeed = 4.6f;
     public float standingHeight = 1.7f;
     public float crouchingHeight = 1.15f;
@@ -127,7 +125,6 @@ public class PlayerController : MonoBehaviour
     bool holdTravel;
     bool wantsToSprint;
     bool movingForward;
-    float lean;
     float speedParameter;
     float idleTime;
     float aimWeight;
@@ -139,6 +136,9 @@ public class PlayerController : MonoBehaviour
     bool roundsIn;
     // True while she holds the trigger and the pistol keeps firing.
     bool rapidFire;
+    // True from a trigger press that fired a round until the trigger is let go: only such a press
+    // goes on into rapid fire, so the click that hands the mouse to the game never fires.
+    bool triggerHeld;
     WeaponAction weaponAction;
     float weaponTimer;
     float jumpTimer;
@@ -168,7 +168,14 @@ public class PlayerController : MonoBehaviour
         SetCrouch(false);
     }
 
-    void Start() => viewCamera = Camera.main;
+    // She starts with the pistol in its holster and her hands empty.
+    void Start()
+    {
+        viewCamera = Camera.main;
+        if (gunHolsterSocket != null) PutGun(gunHolsterSocket, holstered: true);
+        armsWeight = IsHolstered ? 1f : 0f;
+        if (armsLayer >= 0) animator.SetLayerWeight(armsLayer, armsWeight);
+    }
 
     void Update()
     {
@@ -217,14 +224,15 @@ public class PlayerController : MonoBehaviour
             bool mouseOk = Cursor.lockState == CursorLockMode.Locked || !GameInput.FromMouse(GameInput.Fire);
             bool fire = GameInput.Fire.WasPressedThisFrame() && mouseOk;
             bool held = GameInput.Fire.IsPressed() && mouseOk;
-            if (fire && Time.time >= nextShotTime) PullTrigger(rapid: false);
-            // Held down, the pistol keeps firing at the pace of the continuous-fire clip.
-            else if (held && !fire && Time.time >= nextShotTime && CanFire && Loaded > 0) PullTrigger(rapid: true);
-            if (!held || !CanFire || Loaded <= 0) rapidFire = false;
+            if (!held) triggerHeld = false;
+            if (fire && Time.time >= nextShotTime) triggerHeld = PullTrigger(rapid: false);
+            // Held down after a shot, the pistol keeps firing at the pace of the continuous-fire clip.
+            else if (triggerHeld && held && Time.time >= nextShotTime && CanFire && Loaded > 0) PullTrigger(rapid: true);
+            if (!triggerHeld || !CanFire || Loaded <= 0) rapidFire = false;
             if (GameInput.Jump.WasPressedThisFrame()) TryJump();
             if (!IsAiming) UpdateInteraction();
         }
-        else rapidFire = false;
+        else rapidFire = triggerHeld = false;
 
         // The pistol pose lives in the animation once Eve is on. The primitive gun still lifts by hand.
         if (gunModel != null && animator == null)
@@ -237,7 +245,6 @@ public class PlayerController : MonoBehaviour
         if (controller.enabled) controller.Move(motion * Time.deltaTime);
         if (airborne && controller.isGrounded && verticalVelocity <= 0f) airborne = false;
         DriveAnimator();
-        Lean();
     }
 
     // ---- Moving and turning ----
@@ -401,22 +408,6 @@ public class PlayerController : MonoBehaviour
         return animator.GetCurrentAnimatorStateInfo(0).tagHash == QuickTurnTag;
     }
 
-    // Leans the body into a curve where no clip does it: centripetal lean from speed and turn rate.
-    void Lean()
-    {
-        if (animator == null) return;
-        int stance = Stance();
-        bool clipLeans = (stance == RelaxedStance && travel.magnitude > Profile.jog) || stance == AimStance;
-        float target = 0f;
-        if (!clipLeans && !airborne && !IsDead)
-        {
-            float centripetal = travel.magnitude * turnRate * Mathf.Deg2Rad / 9.81f;
-            target = Mathf.Clamp(Mathf.Atan(centripetal) * Mathf.Rad2Deg, -maxLean, maxLean);
-        }
-        lean = Mathf.Lerp(lean, target, 8f * Time.deltaTime);
-        animator.transform.localRotation = Quaternion.Euler(0f, 0f, -lean);
-    }
-
     // ---- Crouching and jumping ----
 
     void UpdateCrouch(bool canAct)
@@ -540,23 +531,25 @@ public class PlayerController : MonoBehaviour
     // Free to shoot: the pistol drawn and in hand, not mid-reload.
     bool CanFire => !IsHolstered && weaponAction == WeaponAction.None && !IsReloading;
 
-    void PullTrigger(bool rapid)
+    // Returns true when a round went off.
+    bool PullTrigger(bool rapid)
     {
         if (IsHolstered)
         {
             StartDraw();
-            return;
+            return false;
         }
-        if (weaponAction != WeaponAction.None || IsReloading) return;
+        if (weaponAction != WeaponAction.None || IsReloading) return false;
         if (Loaded <= 0)
         {
             nextShotTime = Time.time + shotCooldown;
             Play(dryFireSound);
             if (!TryReload()) GameUI.Instance.ShowMessage("*click* Out of ammo.");
-            return;
+            return false;
         }
         idleTime = 0f;
         Shoot(IsAiming ? aimAssistAngle : hipFireAssistAngle, rapid);
+        return true;
     }
 
     bool TryReload()

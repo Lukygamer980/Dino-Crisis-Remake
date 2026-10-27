@@ -861,11 +861,29 @@ public static class PlayerAnimatorBuilder
         return clip;
     }
 
-    // Loose arms for Arms.Swing, in muscle values measured on MotusMan against his torso: Arm Down-Up
-    // -0.7 and Arm Front-Back 0.1 hang the arm down at his side, 9 degrees out and 4 forward; 0.2 more
-    // or less of Front-Back swings it about 15 degrees back or forward; Forearm Stretch 0.7 bends the
-    // elbow to about 156 degrees, -0.1 to about 90. Crouched, Down-Up -0.475 and Front-Back -0.125
-    // hold the arm 28 degrees forward, over the knees.
+    // Where the upper arm points, in degrees forward of his torso, and the Arm Front-Back and Down-Up
+    // muscles that put it there 8 degrees out from his side, measured on MotusMan. Front-Back alone
+    // would swing the arm across his body, so Down-Up lifts it out as it goes forward.
+    static readonly float[] ArmAngles = { -32f, -15f, 3f, 24f, 49f, 79f };
+    static readonly float[] ArmFrontBack = { 0.5f, 0.3f, 0.1f, -0.1f, -0.3f, -0.5f };
+    static readonly float[] ArmDownUp = { -0.9f, -0.84f, -0.72f, -0.54f, -0.28f, 0.14f };
+
+    static (float frontBack, float downUp) ArmAt(float degrees)
+    {
+        int i = 0;
+        while (i < ArmAngles.Length - 2 && degrees > ArmAngles[i + 1]) i++;
+        float t = Mathf.Clamp01(Mathf.InverseLerp(ArmAngles[i], ArmAngles[i + 1], degrees));
+        return (Mathf.Lerp(ArmFrontBack[i], ArmFrontBack[i + 1], t), Mathf.Lerp(ArmDownUp[i], ArmDownUp[i + 1], t));
+    }
+
+    // Loose arms for Arms.Swing, measured on MotusMan against his torso:
+    // - Standing, the arm hangs 3 degrees forward (see ArmAt); crouched, 28 degrees, over the knees.
+    // - Arm Twist 0.15 makes the elbow bend forward, 9 degrees in toward the body; with Forearm
+    //   Twist 0.05 the palm faces the thigh with the thumb forward.
+    // - Forearm Stretch 0.8 bends the elbow to about 165 degrees, 0.5 to 140, 0 to 100.
+    // Each arm swings forward as the other side's foot does: 18 degrees either way at a walk, 35 at a
+    // run, less where the feet travel less than a walk's 0.35 m either way, and the elbow bends more
+    // on the forward swing.
     static void SwingingArms(AnimationClip source, AnimationClip clip)
     {
         AnimationCurve rootY = Curve(source, "RootT.y");
@@ -873,47 +891,60 @@ public static class PlayerAnimatorBuilder
         float length = Mathf.Max(source.length, 1f / source.frameRate);
         int frames = Mathf.Max(1, Mathf.RoundToInt(length * source.frameRate));
         float dt = length / frames;
-        float Mean(AnimationCurve curve)
+        (float mean, float half) Range(AnimationCurve curve)
         {
-            if (curve == null) return 0f;
-            float sum = 0f;
-            for (int i = 0; i <= frames; i++) sum += curve.Evaluate(i * dt);
-            return sum / (frames + 1);
+            if (curve == null) return (0f, 0f);
+            float sum = 0f, min = float.MaxValue, max = float.MinValue;
+            for (int i = 0; i <= frames; i++)
+            {
+                float v = curve.Evaluate(i * dt);
+                sum += v;
+                min = Mathf.Min(min, v);
+                max = Mathf.Max(max, v);
+            }
+            return (sum / (frames + 1), (max - min) / 2f);
         }
-        bool crouched = Mean(rootY) < 0.8f;
+        bool crouched = Range(rootY).mean < 0.8f;
         // How hard she moves: 0 at a walk or slower, 1 at a run, from the clip's own pace.
-        float pace = Stride(source) / length;
-        float effort = crouched ? 0f : Mathf.InverseLerp(1.5f, 4.5f, pace);
-        // Front-Back per metre the opposite foot is ahead of its average.
-        float swing = crouched ? 0.35f : Mathf.Lerp(0.7f, 1f, effort);
-        float down = crouched ? -0.475f : -0.7f, hang = crouched ? -0.125f : 0.1f;
-        float elbow = crouched ? 0.4f : Mathf.Lerp(0.7f, -0.1f, effort);
-        float leftMean = Mean(leftFoot), rightMean = Mean(rightFoot);
+        float effort = crouched ? 0f : Mathf.InverseLerp(1.5f, 4.5f, Stride(source) / length);
+        float hang = crouched ? 28f : 3f;
+        float reach = crouched ? 6f : Mathf.Lerp(18f, 35f, effort);
+        float elbow = crouched ? 0.45f : Mathf.Lerp(0.8f, 0f, effort), bend = crouched ? 0.1f : Mathf.Lerp(0.3f, 0.25f, effort);
 
         var muscles = new Dictionary<string, float[]>();
         foreach (string side in new[] { "Left", "Right" })
         {
+            (float mean, float half) foot = Range(side == "Left" ? rightFoot : leftFoot);
             AnimationCurve otherFoot = side == "Left" ? rightFoot : leftFoot;
-            float otherMean = side == "Left" ? rightMean : leftMean;
+            float swing = reach * Mathf.Clamp01(foot.half / 0.35f);
             var frontBack = new float[frames + 1];
+            var downUp = new float[frames + 1];
+            var stretch = new float[frames + 1];
             for (int i = 0; i <= frames; i++)
-                frontBack[i] = hang - swing * (otherFoot != null ? otherFoot.Evaluate(i * dt) - otherMean : 0f);
+            {
+                // -1 with the other foot furthest back, 1 furthest forward.
+                float phase = foot.half > 0.001f ? Mathf.Clamp((otherFoot.Evaluate(i * dt) - foot.mean) / foot.half, -1f, 1f) : 0f;
+                (frontBack[i], downUp[i]) = ArmAt(hang + swing * phase);
+                stretch[i] = elbow - bend * Mathf.Clamp01(foot.half / 0.35f) * Mathf.Max(0f, phase);
+            }
             muscles[side + " Arm Front-Back"] = frontBack;
-            muscles[side + " Arm Down-Up"] = Constant(down, frames);
+            muscles[side + " Arm Down-Up"] = downUp;
+            muscles[side + " Forearm Stretch"] = stretch;
             muscles[side + " Shoulder Down-Up"] = Constant(0f, frames);
             muscles[side + " Shoulder Front-Back"] = Constant(0f, frames);
-            muscles[side + " Forearm Stretch"] = Constant(elbow, frames);
+            muscles[side + " Arm Twist In-Out"] = Constant(0.15f, frames);
+            muscles[side + " Forearm Twist In-Out"] = Constant(0.05f, frames);
+            muscles[side + " Hand Down-Up"] = Constant(0.1f, frames);
+            muscles[side + " Hand In-Out"] = Constant(0f, frames);
         }
-        // The wrist, the forearm's turn and the fingers come from the relaxed idle's free left hand.
+        // The fingers curl like the relaxed idle's free left hand.
         foreach (EditorCurveBinding binding in AnimationUtility.GetCurveBindings(relaxedHand))
         {
             string muscle = binding.propertyName;
-            if (!muscle.StartsWith("Left") || !IsArmMuscle(muscle.Substring(4))) continue;
-            string part = muscle.Substring(4);
-            if (part.StartsWith(" Arm Front-Back") || part.StartsWith(" Arm Down-Up") || part.StartsWith(" Shoulder") || part.StartsWith(" Forearm Stretch")) continue;
+            if (!muscle.StartsWith("LeftHand.")) continue;
             float value = AnimationUtility.GetEditorCurve(relaxedHand, binding).Evaluate(0f);
             muscles[muscle] = Constant(value, frames);
-            muscles["Right" + part] = Constant(value, frames);
+            muscles["Right" + muscle.Substring(4)] = Constant(value, frames);
         }
         foreach (var pair in muscles)
         {
