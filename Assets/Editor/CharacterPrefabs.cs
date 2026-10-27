@@ -96,7 +96,11 @@ public static class CharacterPrefabs
         {
             gun = SceneBuilder.Part(PrimitiveType.Cube, "Handgun", root.transform, new Vector3(0.24f, 0.95f, 0.12f), Vector3.zero,
                 new Vector3(0.07f, 0.1f, 0.28f), SceneBuilder.gunMetal).transform;
-            if (handSocket != null) gun.SetParent(handSocket, false);
+            if (handSocket != null)
+            {
+                gun.SetParent(handSocket, false);
+                gun.localPosition = Vector3.zero;
+            }
             gunPoint.SetParent(gun, false);
             gunPoint.localPosition = new Vector3(0f, 0f, 0.6f);
         }

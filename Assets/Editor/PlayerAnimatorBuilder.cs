@@ -638,7 +638,7 @@ public static class PlayerAnimatorBuilder
 
         // Holding the trigger: the continuous-fire loop, whose four recoils a cycle PlayerController
         // fires in step with. The first recoil comes two frames in, just after the shot.
-        AnimatorState rapidState = AddState(upper, "Rapid Fire", Tree1D("Rapid Fire", "CrouchBlend", (clips.rapidFire, 0f, 1f, 0f), (clips.crouchRapidFire, 1f, clips.rapidFire.length / clips.crouchRapidFire.length, 0f)));
+        AnimatorState rapidState = AddState(upper, "Rapid Fire", Tree1D("Rapid Fire", "CrouchBlend", (clips.rapidFire, 0f, 1f, 0f), (clips.crouchRapidFire, 1f, clips.crouchRapidFire.length / clips.rapidFire.length, 0f)));
         AnimatorStateTransition rapid = upper.AddAnyStateTransition(rapidState);
         rapid.duration = 0.05f;
         rapid.canTransitionToSelf = false;
