@@ -478,7 +478,7 @@ public static class PlayerAnimatorBuilder
                 for (int g = 0; g < s.starts.Length; g++)
                 {
                     PlayerMovementSettings.Gait gait = ms.For(g + 1);
-                    Go(s.idle, s.starts[g], gait.startBlend, On("Moving"), Is("Gait", g + 1), On("UseStart")).offset = gait.startSkip;
+                    Interruptible(Go(s.idle, s.starts[g], gait.startBlend, On("Moving"), Is("Gait", g + 1), On("UseStart"))).offset = gait.startSkip;
                     Go(s.starts[g], s.idle, 0.25f, Off("Moving"));
                     // Into the gait at the point of its cycle the start clip ends on, so the steps carry on.
                     AnimationClip startClip = (AnimationClip)s.starts[g].motion;
@@ -487,11 +487,11 @@ public static class PlayerAnimatorBuilder
             }
             if (s.start != null)
             {
-                Go(s.idle, s.start, 0.15f, On("Moving"), Above("MoveY", 0.3f), Above("MoveX", -0.4f), Below("MoveX", 0.4f));
+                Interruptible(Go(s.idle, s.start, 0.15f, On("Moving"), Above("MoveY", 0.3f), Above("MoveX", -0.4f), Below("MoveX", 0.4f)));
                 Go(s.start, s.idle, 0.25f, Off("Moving"));
                 ExitTo(s.start, s.move, 0.85f, 0.2f);
             }
-            Go(s.idle, s.move, ms.idleToMoveBlend, On("Moving"));
+            Interruptible(Go(s.idle, s.move, ms.idleToMoveBlend, On("Moving")));
             if (s.fidget != null)
             {
                 // Standing still a while, she looks around; setting off or turning cuts the look short.
@@ -518,14 +518,14 @@ public static class PlayerAnimatorBuilder
             Go(s.stop, s.move, 0.2f, On("Moving"));
             ExitTo(s.stop, s.idle, 0.9f);
         }
-        Go(a.move, aJogStop, 0.2f, Off("Moving"), Is("Gait", 2), Above("MoveY", 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
-        Go(a.move, aWalkStop, 0.2f, Off("Moving"), Is("Gait", 1), Above("MoveY", 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
+        Interruptible(Go(a.move, aJogStop, 0.2f, Off("Moving"), Is("Gait", 2), Above("MoveY", 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f)));
+        Interruptible(Go(a.move, aWalkStop, 0.2f, Off("Moving"), Is("Gait", 1), Above("MoveY", 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f)));
         foreach (AnimatorState stop in new[] { aWalkStop, aJogStop })
         {
             Go(stop, a.move, 0.2f, On("Moving"));
             ExitTo(stop, a.idle, 0.9f);
         }
-        Go(ca.move, caStop, 0.2f, Off("Moving"), Above("MoveY", 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
+        Interruptible(Go(ca.move, caStop, 0.2f, Off("Moving"), Above("MoveY", 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f)));
         Go(caStop, ca.move, 0.2f, On("Moving"));
         ExitTo(caStop, ca.idle, 0.9f);
         // Without the pistol: the pack's last steps from a run, a jog or a walk, and its turns on the move.
@@ -632,7 +632,7 @@ public static class PlayerAnimatorBuilder
         params (AnimatorConditionMode mode, float threshold, string parameter)[] conditions)
     {
         var all = new List<(AnimatorConditionMode, float, string)>(conditions) { Off("Moving"), On("UseStop") };
-        AnimatorStateTransition transition = Go(move, stop, gait.stopBlend, all.ToArray());
+        AnimatorStateTransition transition = Interruptible(Go(move, stop, gait.stopBlend, all.ToArray()));
         if (gait.stopOnFoot)
         {
             transition.hasExitTime = true;
@@ -1449,6 +1449,15 @@ public static class PlayerAnimatorBuilder
         transition.hasExitTime = false;
         transition.duration = duration;
         foreach (var (mode, threshold, parameter) in conditions) transition.AddCondition(mode, threshold, parameter);
+        return transition;
+    }
+
+    // Lets the state a transition leads to take over while it is still blending in, so letting go of
+    // the stick (or pushing it again) halfway through setting off or stopping is answered at once.
+    static AnimatorStateTransition Interruptible(AnimatorStateTransition transition)
+    {
+        transition.interruptionSource = TransitionInterruptionSource.Destination;
+        transition.orderedInterruption = true;
         return transition;
     }
 

@@ -146,6 +146,41 @@ public class PlayerController : MonoBehaviour
     static readonly int TurnTag = Animator.StringToHash("Turn");
     static readonly int FidgetTag = Animator.StringToHash("Fidget");
 
+    // The Animator's parameters, hashed once (PlayerAnimatorBuilder.AddParameters names them).
+    static readonly int MoveXParameter = Animator.StringToHash("MoveX");
+    static readonly int MoveYParameter = Animator.StringToHash("MoveY");
+    static readonly int TurnParameter = Animator.StringToHash("Turn");
+    static readonly int MoveSpeedParameter = Animator.StringToHash("MoveSpeed");
+    static readonly int AimPitchParameter = Animator.StringToHash("AimPitch");
+    static readonly int AimYawParameter = Animator.StringToHash("AimYaw");
+    static readonly int AimBlendParameter = Animator.StringToHash("AimBlend");
+    static readonly int CrouchBlendParameter = Animator.StringToHash("CrouchBlend");
+    static readonly int UnarmedBlendParameter = Animator.StringToHash("UnarmedBlend");
+    static readonly int IdleTimeParameter = Animator.StringToHash("IdleTime");
+    static readonly int IsAimingParameter = Animator.StringToHash("IsAiming");
+    static readonly int MovingParameter = Animator.StringToHash("Moving");
+    static readonly int TurnInPlaceParameter = Animator.StringToHash("TurnInPlace");
+    static readonly int GroundedParameter = Animator.StringToHash("Grounded");
+    static readonly int IsDeadParameter = Animator.StringToHash("IsDead");
+    static readonly int RapidFireParameter = Animator.StringToHash("RapidFire");
+    static readonly int UnarmedParameter = Animator.StringToHash("Unarmed");
+    static readonly int UseStartParameter = Animator.StringToHash("UseStart");
+    static readonly int UseStopParameter = Animator.StringToHash("UseStop");
+    static readonly int StanceParameter = Animator.StringToHash("Stance");
+    static readonly int JumpKindParameter = Animator.StringToHash("JumpKind");
+    static readonly int DeathDirParameter = Animator.StringToHash("DeathDir");
+    static readonly int TurnSideParameter = Animator.StringToHash("TurnSide");
+    static readonly int GaitParameter = Animator.StringToHash("Gait");
+    static readonly int IdleVariantParameter = Animator.StringToHash("IdleVariant");
+    static readonly int FireParameter = Animator.StringToHash("Fire");
+    static readonly int ReloadParameter = Animator.StringToHash("Reload");
+    static readonly int DrawParameter = Animator.StringToHash("Draw");
+    static readonly int HolsterParameter = Animator.StringToHash("Holster");
+    static readonly int JumpParameter = Animator.StringToHash("Jump");
+    static readonly int QuickTurnParameter = Animator.StringToHash("QuickTurn");
+    static readonly int HitParameter = Animator.StringToHash("Hit");
+    static readonly int DeadParameter = Animator.StringToHash("Dead");
+
     LocomotionProfile Profile => locomotion != null ? locomotion : defaultProfile ??= ScriptableObject.CreateInstance<LocomotionProfile>();
     static LocomotionProfile defaultProfile;
     PlayerMovementSettings Movement => movement != null ? movement : defaultMovement ??= ScriptableObject.CreateInstance<PlayerMovementSettings>();
@@ -323,7 +358,7 @@ public class PlayerController : MonoBehaviour
                 gait = !IsCrouching && running ? 2 : 1;
                 moveX = local.x * gait;
                 moveY = local.z * gait;
-                if (animator != null) animator.ResetTrigger("QuickTurn");
+                if (animator != null) animator.ResetTrigger(QuickTurnParameter);
             }
             else
             {
@@ -332,10 +367,10 @@ public class PlayerController : MonoBehaviour
                 turnSide = error < 0f ? -1 : 1;
                 if (!clipTurning && Mathf.Abs(error) > quickTurnAngle && animator != null && rootMotion != null)
                 {
-                    animator.SetInteger("TurnSide", turnSide);
-                    animator.SetTrigger("QuickTurn");
+                    animator.SetInteger(TurnSideParameter, turnSide);
+                    animator.SetTrigger(QuickTurnParameter);
                 }
-                else if (animator != null) animator.ResetTrigger("QuickTurn");
+                else if (animator != null) animator.ResetTrigger(QuickTurnParameter);
                 // The turn loop runs on for its blend out, so she stops it well short of facing the camera.
                 turningOnSpot = turningOnSpot ? Mathf.Abs(error) > aimTurnAngle / 3f : Mathf.Abs(error) > aimTurnAngle;
             }
@@ -361,8 +396,8 @@ public class PlayerController : MonoBehaviour
                 {
                     // Holstered, the Mobility pack turns her: a quarter turn from a stand (crouched too),
                     // or its turn on the move from a walk or a jog.
-                    animator.SetInteger("TurnSide", turnSide);
-                    animator.SetTrigger("QuickTurn");
+                    animator.SetInteger(TurnSideParameter, turnSide);
+                    animator.SetTrigger(QuickTurnParameter);
                     quickTurn = true;
                     turningOnSpot = false;
                 }
@@ -401,7 +436,7 @@ public class PlayerController : MonoBehaviour
                     else moveY = heldMoveY;
                 }
             }
-            if (!quickTurn && animator != null) animator.ResetTrigger("QuickTurn");
+            if (!quickTurn && animator != null) animator.ResetTrigger(QuickTurnParameter);
             if (quickTurn) turnRate = 0f;
             if (wantsToMove) stopWait = 0f;
         }
@@ -469,8 +504,8 @@ public class PlayerController : MonoBehaviour
         }
         if (animator != null)
         {
-            animator.SetInteger("JumpKind", kind);
-            animator.SetTrigger("Jump");
+            animator.SetInteger(JumpKindParameter, kind);
+            animator.SetTrigger(JumpParameter);
         }
         float[] windUps = Profile.jumpWindUps;
         jumpTimer = windUps != null && kind < windUps.Length ? windUps[kind] : 0.3f;
@@ -569,7 +604,7 @@ public class PlayerController : MonoBehaviour
         reloadTimer = reloadDuration;
         roundsIn = false;
         Play(reloadSound);
-        if (animator != null) animator.SetTrigger("Reload");
+        if (animator != null) animator.SetTrigger(ReloadParameter);
         return true;
     }
 
@@ -579,7 +614,7 @@ public class PlayerController : MonoBehaviour
         weaponAction = WeaponAction.Drawing;
         weaponTimer = 0f;
         Play(drawSound);
-        if (animator != null) animator.SetTrigger("Draw");
+        if (animator != null) animator.SetTrigger(DrawParameter);
     }
 
     void StartHolster()
@@ -587,7 +622,7 @@ public class PlayerController : MonoBehaviour
         if (IsHolstered || weaponAction != WeaponAction.None || IsReloading || gunHolsterSocket == null || IsDead) return;
         weaponAction = WeaponAction.Holstering;
         weaponTimer = 0f;
-        if (animator != null) animator.SetTrigger("Holster");
+        if (animator != null) animator.SetTrigger(HolsterParameter);
     }
 
     void PutGun(Transform socket, bool holstered)
@@ -621,43 +656,43 @@ public class PlayerController : MonoBehaviour
         PlayerMovementSettings ms = Movement;
         bool free = !IsAiming;
         float blend = free ? ms.For(gait).blendTime : 0.15f;
-        animator.SetFloat("MoveX", moveX, Mathf.Max(0.02f, blend * 0.7f), dt);
-        animator.SetFloat("MoveY", moveY, Mathf.Max(0.02f, blend), dt);
+        animator.SetFloat(MoveXParameter, moveX, Mathf.Max(0.02f, blend * 0.7f), dt);
+        animator.SetFloat(MoveYParameter, moveY, Mathf.Max(0.02f, blend), dt);
         // The gaits' playback speeds, blended as the gaits are.
-        float gaitNow = Mathf.Abs(animator.GetFloat("MoveY"));
+        float gaitNow = Mathf.Abs(animator.GetFloat(MoveYParameter));
         float playback = gaitNow <= WalkGait ? ms.walk.playbackSpeed : gaitNow <= JogGait ? Mathf.Lerp(ms.walk.playbackSpeed, ms.jog.playbackSpeed, gaitNow - WalkGait)
             : Mathf.Lerp(ms.jog.playbackSpeed, ms.sprint.playbackSpeed, Mathf.Clamp01(gaitNow - JogGait));
-        animator.SetFloat("MoveSpeed", free ? playback : 1f);
-        animator.SetBool("UseStart", ms.For(gait).startClip);
-        animator.SetBool("UseStop", ms.For(gait).stopClip);
+        animator.SetFloat(MoveSpeedParameter, free ? playback : 1f);
+        animator.SetBool(UseStartParameter, ms.For(gait).startClip);
+        animator.SetBool(UseStopParameter, ms.For(gait).stopClip);
         // Steering as fast as the pack's circle loops turn leans her fully into the curve.
         float leanRate = stance == AimStance ? Mathf.Lerp(p.aimWalkLeanRate, p.aimJogLeanRate, Mathf.Clamp01(moveY - WalkGait))
             : IsHolstered ? (moveY > JogGait ? p.unarmedRunLeanRate : moveY > WalkGait ? p.unarmedJogLeanRate : p.unarmedWalkLeanRate)
             : p.runLeanRate;
         float leanScale = free ? ms.For(gait).lean : 1f;
-        animator.SetFloat("Turn", Mathf.Clamp(turnRate / Mathf.Max(1f, leanRate) * leanScale, -1.5f, 1.5f), 0.2f, dt);
-        animator.SetInteger("Stance", stance);
-        animator.SetBool("IsAiming", IsAiming);
-        animator.SetBool("Moving", wantsToMove && !turningOnSpot);
-        animator.SetBool("TurnInPlace", turningOnSpot);
-        animator.SetInteger("TurnSide", turnSide);
-        animator.SetBool("Grounded", !airborne);
-        animator.SetBool("RapidFire", rapidFire);
-        animator.SetBool("Unarmed", IsHolstered);
-        animator.SetInteger("Gait", gait);
+        animator.SetFloat(TurnParameter, Mathf.Clamp(turnRate / Mathf.Max(1f, leanRate) * leanScale, -1.5f, 1.5f), 0.2f, dt);
+        animator.SetInteger(StanceParameter, stance);
+        animator.SetBool(IsAimingParameter, IsAiming);
+        animator.SetBool(MovingParameter, wantsToMove && !turningOnSpot);
+        animator.SetBool(TurnInPlaceParameter, turningOnSpot);
+        animator.SetInteger(TurnSideParameter, turnSide);
+        animator.SetBool(GroundedParameter, !airborne);
+        animator.SetBool(RapidFireParameter, rapidFire);
+        animator.SetBool(UnarmedParameter, IsHolstered);
+        animator.SetInteger(GaitParameter, gait);
         unarmedBlend = Mathf.MoveTowards(unarmedBlend, IsHolstered ? 1f : 0f, 4f * dt);
-        animator.SetFloat("UnarmedBlend", unarmedBlend);
-        animator.SetFloat("CrouchBlend", CrouchAmount);
+        animator.SetFloat(UnarmedBlendParameter, unarmedBlend);
+        animator.SetFloat(CrouchBlendParameter, CrouchAmount);
 
         // Where the camera looks: up and down for the pistol or the head, and how far the body still
         // has to turn while she aims, so the pistol stays on the crosshair as her feet catch up.
         float pitch = viewCamera != null ? Mathf.DeltaAngle(0f, viewCamera.transform.eulerAngles.x) : 0f;
         float yawOff = viewCamera != null ? Mathf.DeltaAngle(transform.eulerAngles.y, viewCamera.transform.eulerAngles.y) : 0f;
-        animator.SetFloat("AimPitch", Mathf.Clamp(-pitch / 90f, -1f, 1f));
-        animator.SetFloat("AimYaw", IsAiming ? Mathf.Clamp(yawOff / 90f, -1f, 1f) : 0f);
+        animator.SetFloat(AimPitchParameter, Mathf.Clamp(-pitch / 90f, -1f, 1f));
+        animator.SetFloat(AimYawParameter, IsAiming ? Mathf.Clamp(yawOff / 90f, -1f, 1f) : 0f);
         aimWeight = Mathf.MoveTowards(aimWeight, IsAiming ? 1f : 0f, 5f * Time.deltaTime);
         lookWeight = Mathf.MoveTowards(lookWeight, !IsAiming && !IsDead ? 1f : 0f, 3f * Time.deltaTime);
-        animator.SetFloat("AimBlend", aimWeight);
+        animator.SetFloat(AimBlendParameter, aimWeight);
         if (aimLayer >= 0) animator.SetLayerWeight(aimLayer, aimWeight);
         if (lookLayer >= 0) animator.SetLayerWeight(lookLayer, lookWeight * 0.7f);
 
@@ -666,10 +701,10 @@ public class PlayerController : MonoBehaviour
         bool still = (stance == RelaxedStance || stance == AimStance || stance == UnarmedStance) && stance == lastStance && !wantsToMove && !turningOnSpot && !IsReloading && weaponAction == WeaponAction.None;
         // Once a look around begins, the wait for the next one starts over, with a new pick.
         if (ClipTag(FidgetTag)) still = false;
-        if (!still && idleTime > 0f) animator.SetInteger("IdleVariant", Random.Range(0, 2));
+        if (!still && idleTime > 0f) animator.SetInteger(IdleVariantParameter, Random.Range(0, 2));
         idleTime = still ? idleTime + Time.deltaTime : 0f;
         lastStance = stance;
-        animator.SetFloat("IdleTime", idleTime);
+        animator.SetFloat(IdleTimeParameter, idleTime);
     }
 
     // Whether the stance has a stop clip for the gait: holstered for every gait, crouched holstered
@@ -690,8 +725,8 @@ public class PlayerController : MonoBehaviour
         v.y = 0f;
         AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
         string text = $"stance {Stance()}  gait {gait}  pace {v.magnitude:F2} m/s\n" +
-            $"MoveY {animator.GetFloat("MoveY"):F2}  MoveX {animator.GetFloat("MoveX"):F2}  speed x{animator.GetFloat("MoveSpeed"):F2}\n" +
-            $"turn {turnRate:F0} deg/s  lean {animator.GetFloat("Turn"):F2}  on the spot {turningOnSpot}\n" +
+            $"MoveY {animator.GetFloat(MoveYParameter):F2}  MoveX {animator.GetFloat(MoveXParameter):F2}  speed x{animator.GetFloat(MoveSpeedParameter):F2}\n" +
+            $"turn {turnRate:F0} deg/s  lean {animator.GetFloat(TurnParameter):F2}  on the spot {turningOnSpot}\n" +
             $"state {StateName(state.shortNameHash)} {state.normalizedTime % 1f:F2}{(animator.IsInTransition(0) ? " -> " + StateName(animator.GetNextAnimatorStateInfo(0).shortNameHash) : "")}" +
             (stopWait > 0f ? $"  stop waits {stopWait:F2}s" : "");
         GUI.Box(new Rect(10f, 10f, 440f, 74f), GUIContent.none);
@@ -722,7 +757,7 @@ public class PlayerController : MonoBehaviour
         nextShotTime = Time.time + (rapid ? Profile.rapidFireInterval : shotCooldown);
         rapidFire = rapid;
         Loaded--;
-        if (animator != null && !rapid) animator.SetTrigger("Fire");
+        if (animator != null && !rapid) animator.SetTrigger(FireParameter);
         if (muzzleFlash != null)
         {
             muzzleFlash.enabled = true;
@@ -865,13 +900,13 @@ public class PlayerController : MonoBehaviour
             // A Hit or Fire still pending would leave Dead through Any State and stand her back up.
             if (IsDead)
             {
-                animator.ResetTrigger("Hit");
-                animator.ResetTrigger("Fire");
-                animator.ResetTrigger("Jump");
-                animator.SetInteger("DeathDir", DeathDirection(fromPosition));
-                animator.SetBool("IsDead", true);
+                animator.ResetTrigger(HitParameter);
+                animator.ResetTrigger(FireParameter);
+                animator.ResetTrigger(JumpParameter);
+                animator.SetInteger(DeathDirParameter, DeathDirection(fromPosition));
+                animator.SetBool(IsDeadParameter, true);
             }
-            animator.SetTrigger(IsDead ? "Dead" : "Hit");
+            animator.SetTrigger(IsDead ? DeadParameter : HitParameter);
         }
 
         if (IsDead)
