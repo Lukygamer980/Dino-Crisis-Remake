@@ -10,7 +10,7 @@ using Object = UnityEngine.Object;
 //
 // The model is picked in the Player Character asset (see PlayerCharacterSetup); by default it is the
 // pack's own MotusMan, the skeleton the clips were recorded on. Every clip plays at the speed it was
-// recorded at, except turns on the spot (TurnInPlaceSpeed, UnarmedQuickTurnSpeed), and root motion moves
+// recorded at, except turns on the spot (Player Movement's turn-in-place and quarter turn speeds), and root motion moves
 // her: PlayerController hands each frame's animated step to the CharacterController, so her feet
 // carry her exactly as far as they step. Turns on the spot and the quarter turns turn her by their
 // own root rotation. On the move PlayerController steers her toward the stick, and the pack's circle
@@ -48,11 +48,6 @@ public static class PlayerAnimatorBuilder
     // Gaits in the movement blends, as the MoveX/MoveY radius PlayerController asks for: the clips
     // themselves set how fast each one goes.
     public const float WalkGait = 1f, JogGait = 2f, RunGait = 3f;
-    // The turn-in-place loops step 45 degrees in 0.67 s, so a half turn takes 2.7 s at their own
-    // pace. They play this much faster; the feet still step the whole turn.
-    public const float TurnInPlaceSpeed = 2f;
-    // The Mobility pack's quarter turns from a stand take about 3 s; they play this much faster.
-    public const float UnarmedQuickTurnSpeed = 1.5f;
     // The continuous-fire loops fire four rounds a cycle; holding the trigger fires at that pace.
     const int RapidShotsPerLoop = 4;
     // A hit is the first 20 frames of falling backward: she staggers, and catches herself before the fall.
@@ -288,7 +283,7 @@ public static class PlayerAnimatorBuilder
             (aimWalkRight, new Vector2(WalkGait, 0f)),
             (aimJogRight, new Vector2(JogGait, 0f))), "Move");
         (a.turnLeft, a.turnRight) = (a.Add("Turn Left", aimTurnLeft, "Turn"), a.Add("Turn Right", aimTurnRight, "Turn"));
-        (a.quickLeft, a.quickRight) = (a.Add("Quick Turn Left", aimQuickLeft, "Turn"), a.Add("Quick Turn Right", aimQuickRight, "Turn"));
+        (a.quickLeft, a.quickRight) = (a.Add("Quick Turn Left", aimQuickLeft, "Quarter"), a.Add("Quick Turn Right", aimQuickRight, "Quarter"));
         a.fidget = a.Add("Look Around", aimFidget);
         a.start = a.Add("First Step", aimStart, "Move");
         AnimatorState aWalkStop = a.Add("Walk Stop", aimWalkStop, "Move");
@@ -309,7 +304,7 @@ public static class PlayerAnimatorBuilder
             (crouchAimWalk, new Vector2(0f, WalkGait)), (crouchAimBack, new Vector2(0f, -WalkGait)),
             (crouchAimLeft, new Vector2(-WalkGait, 0f)), (crouchAimRight, new Vector2(WalkGait, 0f))), "Move");
         (ca.turnLeft, ca.turnRight) = (ca.Add("Turn Left", crouchAimTurnLeft, "Turn"), ca.Add("Turn Right", crouchAimTurnRight, "Turn"));
-        (ca.quickLeft, ca.quickRight) = (ca.Add("Quick Turn Left", crouchQuickLeft, "Turn"), ca.Add("Quick Turn Right", crouchQuickRight, "Turn"));
+        (ca.quickLeft, ca.quickRight) = (ca.Add("Quick Turn Left", crouchQuickLeft, "Quarter"), ca.Add("Quick Turn Right", crouchQuickRight, "Quarter"));
         ca.start = ca.Add("First Step", crouchAimStart, "Move");
         AnimatorState caStop = ca.Add("Stop", crouchAimStop, "Move");
 
@@ -347,14 +342,14 @@ public static class PlayerAnimatorBuilder
             s.idle = s.Add("Idle", stand);
             s.move = s.Add("Move", unarmedMove, "Move");
             (s.turnLeft, s.turnRight) = (s.Add("Turn Left", M("Stand_Rlx_Turn_In_Place_L_Loop", true), "Turn"), s.Add("Turn Right", M("Stand_Rlx_Turn_In_Place_R_Loop", true), "Turn"));
-            (s.quickLeft, s.quickRight) = (s.Add("Quick Turn Left", M("Stand_Relaxed_L_90", true), "Turn"), s.Add("Quick Turn Right", M("Stand_Relaxed_R_90", true), "Turn"));
-            s.quickLeft.speed = s.quickRight.speed = UnarmedQuickTurnSpeed;
+            (s.quickLeft, s.quickRight) = (s.Add("Quick Turn Left", M("Stand_Relaxed_L_90", true), "Quarter"), s.Add("Quick Turn Right", M("Stand_Relaxed_R_90", true), "Quarter"));
+            s.quickLeft.speed = s.quickRight.speed = ms.quarterTurnSpeed;
             s.starts = new[] { s.Add("Start Walk", mStarts[0], "Move"), s.Add("Start Jog", mStarts[1], "Move"), s.Add("Start Run", mStarts[2], "Move") };
             s.stops = new[] { s.Add("Walk Stop", mStops[0], "Move"), s.Add("Jog Stop", mStops[1], "Move"), s.Add("Run Stop", mStops[2], "Move") };
             s.moveTurns = new[]
             {
-                (s.Add("Walk Turn Left", M("Walk_L_90", true), "Turn"), -1, 0f, 1.5f), (s.Add("Walk Turn Right", M("Walk_R_90", true), "Turn"), 1, 0f, 1.5f),
-                (s.Add("Jog Turn Left", M("Jog_L_90", true), "Turn"), -1, 1.5f, 2.5f), (s.Add("Jog Turn Right", M("Jog_R_90", true), "Turn"), 1, 1.5f, 2.5f),
+                (s.Add("Walk Turn Left", M("Walk_L_90", true), "Quarter"), -1, 0f, 1.5f), (s.Add("Walk Turn Right", M("Walk_R_90", true), "Quarter"), 1, 0f, 1.5f),
+                (s.Add("Jog Turn Left", M("Jog_L_90", true), "Quarter"), -1, 1.5f, 2.5f), (s.Add("Jog Turn Right", M("Jog_R_90", true), "Quarter"), 1, 1.5f, 2.5f),
             };
             s.gaitLoops = new[] { mWalk, mJog, mRun };
             s.free = true;
@@ -375,8 +370,8 @@ public static class PlayerAnimatorBuilder
             (M("CrouchWalk_FL_Loop"), new Vector2(-D, D) * WalkGait), (M("CrouchWalk_FR_Loop"), new Vector2(D, D) * WalkGait),
             (M("CrouchWalk_BL_BkPd_Loop"), new Vector2(-D, -D) * WalkGait), (M("CrouchWalk_BR_BkPd_Loop"), new Vector2(D, -D) * WalkGait)), "Move");
         (uc.turnLeft, uc.turnRight) = (uc.Add("Turn Left", M("Crouch_Rlx_Turn_In_Place_L_Loop", true), "Turn"), uc.Add("Turn Right", M("Crouch_Rlx_Turn_In_Place_R_Loop", true), "Turn"));
-        (uc.quickLeft, uc.quickRight) = (uc.Add("Quick Turn Left", M("Crouch_L_90", true), "Turn"), uc.Add("Quick Turn Right", M("Crouch_R_90", true), "Turn"));
-        uc.quickLeft.speed = uc.quickRight.speed = UnarmedQuickTurnSpeed;
+        (uc.quickLeft, uc.quickRight) = (uc.Add("Quick Turn Left", M("Crouch_L_90", true), "Quarter"), uc.Add("Quick Turn Right", M("Crouch_R_90", true), "Quarter"));
+        uc.quickLeft.speed = uc.quickRight.speed = ms.quarterTurnSpeed;
         uc.start = uc.Add("First Step", M("Crouch_To_CrouchWalk_F"), "Move");
         uc.stops = new[] { uc.Add("Stop", M("CrouchWalk_F_To_Crouch_RU"), "Move") };
         uc.gaitLoops = new[] { M("CrouchWalk_F_Loop") };
@@ -384,7 +379,7 @@ public static class PlayerAnimatorBuilder
 
         foreach (StanceStates s in stances.Values)
         {
-            foreach (AnimatorState turn in new[] { s.turnLeft, s.turnRight }) turn.speed = TurnInPlaceSpeed;
+            foreach (AnimatorState turn in new[] { s.turnLeft, s.turnRight }) turn.speed = ms.turnInPlaceSpeed;
             // The gait's playback speed (Player Movement) on moving, setting off and stopping.
             if (s.free)
                 foreach (AnimatorState state in s.all)
@@ -499,7 +494,6 @@ public static class PlayerAnimatorBuilder
                     into.interruptionSource = TransitionInterruptionSource.Source;
                     SetOff(look, s, ms, 0.3f);
                     Go(look, s.idle, 0.3f, On("TurnInPlace"));
-                    Go(look, s.idle, 0.3f, On("QuickTurn"));
                     ExitTo(look, s.idle, 0.95f);
                 }
             }
@@ -538,6 +532,7 @@ public static class PlayerAnimatorBuilder
             foreach ((AnimatorState turn, int side, float above, float below) in s.moveTurns)
             {
                 Go(s.move, turn, 0.15f, On("QuickTurn"), Is("TurnSide", side), Above("MoveY", above), Below("MoveY", below));
+                CutShort(turn, s);
                 ExitTo(turn, s.move, 0.85f, 0.2f, On("Moving"));
                 ExitTo(turn, s.idle, 0.85f, 0.25f, Off("Moving"));
             }
@@ -707,7 +702,8 @@ public static class PlayerAnimatorBuilder
         public StanceStates(AnimatorStateMachine root, string name) => machine = root.AddStateMachine(name);
 
         // A tag of "Move" marks a state whose root motion carries her and whose turns PlayerController
-        // steers; "Turn" marks one whose root rotation turns her.
+        // steers; "Turn" marks a turn on the spot whose root rotation turns her, and "Quarter" a quarter
+        // turn, which also turns her by its root rotation and which PlayerController can end early.
         public AnimatorState Add(string name, Motion motion, string tag = null)
         {
             AnimatorState state = AddState(machine, name, motion);
@@ -738,24 +734,37 @@ public static class PlayerAnimatorBuilder
         }
     }
 
-    // A quarter turn on the spot, picked by TurnSide, from standing or from a turn already under way,
-    // at the clip's own pace. Its root rotation turns her; she may set off once it is mostly done.
+    // A quarter turn on the spot, picked by TurnSide, from standing or looking around, from a turn
+    // already under way, or from a quarter turn the other way. Its root rotation turns her until
+    // PlayerController sees her facing where she is asked to and ends it; otherwise she may set off
+    // once it is mostly done.
     static void QuickTurns(StanceStates s)
     {
         foreach ((AnimatorState state, int side) in new[] { (s.quickLeft, -1), (s.quickRight, 1) })
         {
-            foreach (AnimatorState from in new[] { s.idle, s.turnLeft, s.turnRight })
+            foreach (AnimatorState from in new[] { s.idle, s.fidget, s.fidgetAlt, s.turnLeft, s.turnRight, side < 0 ? s.quickRight : s.quickLeft })
             {
-                AnimatorStateTransition into = Go(from, state, 0.15f, On("QuickTurn"), Is("TurnSide", side));
+                if (from == null) continue;
+                // Interruptible, so swinging the stick back while it blends in turns her back at once.
+                AnimatorStateTransition into = Interruptible(Go(from, state, 0.15f, On("QuickTurn"), Is("TurnSide", side)));
                 // Before the other transitions out of these states.
                 AnimatorStateTransition[] transitions = from.transitions;
                 Array.Copy(transitions, 0, transitions, 1, transitions.Length - 1);
                 transitions[0] = into;
                 from.transitions = transitions;
             }
+            CutShort(state, s);
             ExitTo(state, s.move, 0.7f, 0.2f, On("Moving"));
             ExitTo(state, s.idle, 0.9f, 0.25f);
         }
+    }
+
+    // A turn clip never holds her for its whole length: once PlayerController sets TurnDone (she faces
+    // where she is asked to, or the stick lets go or swings the other way) she walks on or stands.
+    static void CutShort(AnimatorState turn, StanceStates s)
+    {
+        Go(turn, s.move, 0.2f, On("TurnDone"), On("Moving"));
+        Go(turn, s.idle, 0.25f, On("TurnDone"), Off("Moving"));
     }
 
     // ---- Upper body and offsets ----
@@ -1419,7 +1428,7 @@ public static class PlayerAnimatorBuilder
     {
         foreach (string name in new[] { "MoveX", "MoveY", "Turn", "MoveSpeed", "AimPitch", "AimYaw", "AimBlend", "CrouchBlend", "UnarmedBlend", "IdleTime" })
             controller.AddParameter(name, AnimatorControllerParameterType.Float);
-        foreach (string name in new[] { "IsAiming", "Moving", "TurnInPlace", "Grounded", "IsDead", "RapidFire", "Unarmed", "UseStart", "UseStop" })
+        foreach (string name in new[] { "IsAiming", "Moving", "TurnInPlace", "TurnDone", "Grounded", "IsDead", "RapidFire", "Unarmed", "UseStart", "UseStop" })
             controller.AddParameter(name, AnimatorControllerParameterType.Bool);
         foreach (string name in new[] { "Stance", "JumpKind", "DeathDir", "TurnSide", "Weapon", "Gait", "IdleVariant" })
             controller.AddParameter(name, AnimatorControllerParameterType.Int);

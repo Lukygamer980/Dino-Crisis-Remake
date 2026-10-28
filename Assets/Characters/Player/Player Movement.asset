@@ -67,7 +67,7 @@ MonoBehaviour:
     turnAcceleration: 700
     lean: 1
     sharpTurnSpeedShare: 0.35
-    turnClipAngle: 80
+    turnClipAngle: 180
     startClip: 1
     stopClip: 1
     startSkip: 0.23
@@ -82,7 +82,7 @@ MonoBehaviour:
     turnAcceleration: 700
     lean: 1
     sharpTurnSpeedShare: 0.35
-    turnClipAngle: 80
+    turnClipAngle: 180
     startClip: 1
     stopClip: 1
     startSkip: 0.43
@@ -107,6 +107,9 @@ MonoBehaviour:
   turnOnSpotAngle: 120
   quarterTurnAngle: 60
   quarterTurnMax: 120
+  turnFinishAngle: 15
   idleToMoveBlend: 0.2
   moveToIdleBlend: 0.3
+  quarterTurnSpeed: 1.5
+  turnInPlaceSpeed: 2
   showDebug: 0

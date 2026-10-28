@@ -31,15 +31,15 @@ public class PlayerMovementSettings : ScriptableObject
         [Range(0f, 1.5f)] public float lean = 1f;
         [Tooltip("In a sharp turn she slows to this share of the gait, so she curves round instead of running a wide arc.")]
         [Range(0f, 1f)] public float sharpTurnSpeedShare = 0.35f;
-        [Tooltip("Holstered, walking or jogging: turning farther off than this plays the pack's 90 degree turn on the move. 180 never does.")]
-        [Range(30f, 180f)] public float turnClipAngle = 80f;
+        [Tooltip("Holstered, walking or jogging: turning farther off than this plays the pack's 90 degree turn on the move. 180 never does, the default: those clips take 2.5 s, so steering turns her instead.")]
+        [Range(30f, 180f)] public float turnClipAngle = 180f;
         [Tooltip("Sets off from a stand with the pack's start clip; off, she blends straight into the gait.")]
         public bool startClip = true;
         [Tooltip("Stops with the pack's last steps; off, she slows to a stand by the blend.")]
         public bool stopClip = true;
 
         [Header("Animator (rebuild)")]
-        [Tooltip("Starts the start clip this far in (0 to 0.9 of it), skipping its slow first weight shift.")]
+        [Tooltip("Starts the start clip this far in (0 to 0.9 of it), skipping its slow first weight shift. A share of the clip's length, so it is tuned to the Mobility pack's start clips.")]
         [Range(0f, 0.9f)] public float startSkip = 0f;
         [Tooltip("Blend into the start clip, in seconds.")]
         [Range(0f, 0.5f)] public float startBlend = 0.15f;
@@ -78,11 +78,17 @@ public class PlayerMovementSettings : ScriptableObject
     [Range(30f, 180f)] public float quarterTurnAngle = 60f;
     [Tooltip("...and farther off than this she steps round on the spot instead, since two quarter turns take seconds.")]
     [Range(60f, 180f)] public float quarterTurnMax = 120f;
+    [Tooltip("A quarter turn ends as soon as she faces within this of the stick (aiming, of the camera), and she walks on or steers the rest. Letting go, or swinging the stick to the other side, ends it at once too.")]
+    [Range(2f, 45f)] public float turnFinishAngle = 15f;
     [Header("Standing (Animator, rebuild)")]
     [Tooltip("Blend from standing into moving when there is no start clip, in seconds.")]
     [Range(0f, 0.6f)] public float idleToMoveBlend = 0.2f;
     [Tooltip("Blend from moving to standing once she has slowed, in seconds.")]
     [Range(0f, 0.8f)] public float moveToIdleBlend = 0.3f;
+    [Tooltip("The quarter turns from a stand play this much faster than recorded (the Mobility pack's take about 3 s).")]
+    [Range(1f, 2.5f)] public float quarterTurnSpeed = 1.5f;
+    [Tooltip("The turn-on-the-spot loops play this much faster than recorded (they step 45 degrees in 0.67 s); the feet still step the whole turn.")]
+    [Range(1f, 3f)] public float turnInPlaceSpeed = 2f;
 
     [Header("Debug")]
     [Tooltip("Shows the gait, pace, turn and Animator state in the corner of the game view.")]
