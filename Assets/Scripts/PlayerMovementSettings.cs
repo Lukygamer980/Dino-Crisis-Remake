@@ -50,12 +50,14 @@ public class PlayerMovementSettings : ScriptableObject
     }
 
     [Header("Stick")]
-    [Tooltip("Stick deflection below this counts as letting go.")]
-    [Range(0f, 0.5f)] public float deadzone = 0.15f;
-    [Tooltip("Walks slower with the stick pushed part way, by blending the walk with standing. Off, any push walks at the walk's pace.")]
-    public bool analogWalk = false;
-    [Tooltip("With analog walk, the pace at the edge of the deadzone, as a share of the walk.")]
-    [Range(0.2f, 1f)] public float analogWalkMin = 0.5f;
+    [Tooltip("Stick deflection below this counts as letting go. It is the only deadzone: the pad is read before the Input System's own.")]
+    [Range(0f, 0.5f)] public float deadzone = 0.12f;
+    [Tooltip("Deflection past this counts as pushed all the way.")]
+    [Range(0.5f, 1f)] public float outerDeadzone = 0.95f;
+    [Tooltip("How far the stick is pushed (0 just past the deadzone, 1 all the way) against the pace it asks for: 0 the slowest creep, 1 the walk, 2 the jog. Between 1 and 2 the walk and the jog blend. Keep it rising.")]
+    public AnimationCurve stickPace = Linear((0f, 0f), (0.5f, 1f), (0.8f, 1f), (1f, 2f));
+    [Tooltip("The creep at the bottom of the stick's range: the walk played this much slower, so its root motion slows with it and the feet stay planted.")]
+    [Range(0.3f, 1f)] public float creepPlayback = 0.6f;
 
     [Header("Gaits")]
     public Gait walk = new() { blendTime = 0.15f, maxTurnRate = 260f, turnResponse = 5f, turnAcceleration = 700f };
@@ -81,4 +83,23 @@ public class PlayerMovementSettings : ScriptableObject
 
     // The settings for gait 1 (walk), 2 (jog) or 3 (sprint).
     public Gait For(int gait) => gait >= 3 ? sprint : gait == 2 ? jog : walk;
+
+    // How far past the deadzone a stick of this magnitude is pushed, 0 to 1.
+    public float Deflection(float magnitude) =>
+        magnitude < deadzone ? 0f : Mathf.Clamp01((magnitude - deadzone) / Mathf.Max(0.01f, outerDeadzone - deadzone));
+
+    // A curve of straight segments through the points.
+    static AnimationCurve Linear(params (float time, float value)[] points)
+    {
+        var keys = new Keyframe[points.Length];
+        for (int i = 0; i < points.Length; i++)
+        {
+            float before = i > 0 ? Slope(points[i - 1], points[i]) : 0f;
+            float after = i < points.Length - 1 ? Slope(points[i], points[i + 1]) : 0f;
+            keys[i] = new Keyframe(points[i].time, points[i].value, i > 0 ? before : after, i < points.Length - 1 ? after : before);
+        }
+        return new AnimationCurve(keys);
+    }
+
+    static float Slope((float time, float value) a, (float time, float value) b) => (b.value - a.value) / (b.time - a.time);
 }

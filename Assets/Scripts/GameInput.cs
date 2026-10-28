@@ -34,4 +34,14 @@ public static class GameInput
 
     // Whether the button that last pressed `action` is on the mouse.
     public static bool FromMouse(InputAction action) => action.activeControl?.device is Mouse;
+
+    // The move stick as the pad reports it, before the Input System's own deadzone, so that Player
+    // Movement's deadzone is the only one; or the keys, which are either pressed or not.
+    public static Vector2 MoveStick(out bool fromKeys)
+    {
+        Vector2 keys = Move.ReadValue<Vector2>();
+        fromKeys = keys != Vector2.zero && Move.activeControl?.device is Keyboard;
+        if (fromKeys || Gamepad.current == null) return keys;
+        return Vector2.ClampMagnitude(Gamepad.current.leftStick.ReadUnprocessedValue(), 1f);
+    }
 }

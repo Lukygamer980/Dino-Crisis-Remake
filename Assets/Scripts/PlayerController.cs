@@ -4,8 +4,9 @@ using UnityEngine;
 // Third-person controls: WASD or the left stick moves relative to where the camera looks, and she
 // turns to face where she is heading. The MocapOnline pack's root motion moves her: every frame the
 // Animator's step goes to the CharacterController, so her feet carry her exactly as far as the clips
-// step, at the pace they were recorded. PlayerController only picks the gait (walk, or run with the
-// run button), steers her toward the stick on the move, and asks the Animator to turn her on the spot
+// step, at the pace they were recorded. PlayerController only picks the gait (how far the stick is
+// pushed sets a creep, a walk or a jog; the run button sprints), steers her toward the stick on the
+// move, and asks the Animator to turn her on the spot
 // when she stands facing well away; the turn clips' own rotation turns her then.
 // Holding aim turns her with the camera and lets her strafe; shots go to the crosshair at the center
 // of the screen, also on the move. She can crouch, jump, reload, and holster or draw the pistol;
@@ -120,6 +121,9 @@ public class PlayerController : MonoBehaviour
     float unarmedBlend = 1f;
     // The last MoveY she asked for on the move, which a waiting stop holds.
     float lastMoveY;
+    // With the stick pushed only a little she creeps: the walk played this much slower (1 at a walk
+    // and faster). A waiting stop keeps it, so her steps carry on at the same pace.
+    float creep = 1f;
     // The gait she asks for: walk 1, jog 2, run 3. It stays at the last one when she lets go, so the
     // Animator picks the stop that fits.
     int gait = 1;
@@ -234,15 +238,18 @@ public class PlayerController : MonoBehaviour
         UpdateCrouch(canAct);
 
         Quaternion view = CameraYaw();
-        Vector2 stick = canAct ? GameInput.Move.ReadValue<Vector2>() : Vector2.zero;
-        Vector3 input = Vector3.ClampMagnitude(new Vector3(stick.x, 0f, stick.y), 1f);
-        Vector3 move = input.magnitude < Mathf.Max(0.05f, Movement.deadzone) ? Vector3.zero : view * input;
+        bool fromKeys = false;
+        Vector2 stick = canAct ? GameInput.MoveStick(out fromKeys) : Vector2.zero;
+        float deflection = Movement.Deflection(stick.magnitude);
+        Vector3 move = deflection > 0f ? view * new Vector3(stick.x, 0f, stick.y).normalized * deflection : Vector3.zero;
+        // How fast the stick asks her to go (Player Movement's stick pace): the keys walk.
+        float stickPace = deflection <= 0f ? 0f : fromKeys ? WalkGait : Mathf.Max(0f, Movement.stickPace.Evaluate(deflection));
         bool running = canAct && GameInput.Run.IsPressed();
         // Running gets her up off her knees.
         if (running && IsCrouching && move != Vector3.zero) TryStandUp();
         wantsToMove = move != Vector3.zero;
 
-        Steer(move, input.magnitude, running, view);
+        Steer(move, stickPace, running, view);
 
         if (canAct)
         {
@@ -332,8 +339,9 @@ public class PlayerController : MonoBehaviour
     }
 
     // Picks the gait and the turn. Free movement goes where she faces, so a turn on the move is a curve;
-    // aiming, she faces the camera and strafes.
-    void Steer(Vector3 move, float amount, bool running, Quaternion view)
+    // aiming, she faces the camera and strafes. `stickPace` is how fast the stick asks her to go:
+    // under 1 a creep, 1 the walk, 2 the jog.
+    void Steer(Vector3 move, float stickPace, bool running, Quaternion view)
     {
         float yaw = transform.eulerAngles.y;
         float targetRate = 0f;
@@ -345,7 +353,11 @@ public class PlayerController : MonoBehaviour
             return;
         }
         bool clipTurning = ClipTag(TurnTag);
-        if (IsAiming) stopWait = 0f;
+        if (IsAiming)
+        {
+            stopWait = 0f;
+            creep = 1f;
+        }
 
         if (IsAiming)
         {
@@ -383,7 +395,11 @@ public class PlayerController : MonoBehaviour
             bool quickTurn = false;
             if (wantsToMove)
             {
-                gait = !running || IsCrouching ? 1 : Status == "DANGER" ? 2 : 3;
+                // The stick sets the pace from a creep to a jog; the run button sprints (badly hurt, it
+                // only jogs). Crouched she creeps or walks.
+                float pace = IsCrouching ? Mathf.Min(stickPace, WalkGait) : running ? (Status == "DANGER" ? JogGait : RunGait) : stickPace;
+                gait = pace > 2.5f ? 3 : pace > 1.5f ? 2 : 1;
+                creep = pace < WalkGait ? Mathf.Lerp(ms.creepPlayback, 1f, pace) : 1f;
                 PlayerMovementSettings.Gait g = ms.For(gait);
                 float error = Mathf.DeltaAngle(yaw, Quaternion.LookRotation(move).eulerAngles.y);
                 turnSide = error < 0f ? -1 : 1;
@@ -410,9 +426,7 @@ public class PlayerController : MonoBehaviour
                     if (!quickTurn) targetRate = Mathf.Clamp(error * g.turnResponse, -g.maxTurnRate, g.maxTurnRate);
                     // A sharp turn slows her, so she curves round rather than running a wide arc.
                     float sharpness = Mathf.Max(Mathf.Clamp01(1f - (Mathf.Abs(error) - 45f) / 120f), g.sharpTurnSpeedShare);
-                    moveY = Mathf.Max(WalkGait, gait * sharpness);
-                    // With analog walk, a stick pushed part way walks slower.
-                    if (gait == 1 && ms.analogWalk) moveY = Mathf.Lerp(ms.analogWalkMin, 1f, Mathf.InverseLerp(ms.deadzone, 1f, amount));
+                    moveY = Mathf.Max(WalkGait, pace * sharpness);
                 }
             }
             else
@@ -425,7 +439,7 @@ public class PlayerController : MonoBehaviour
                     float[] cycles = Profile.gaitCycles;
                     int index = IsCrouching ? cycles.Length - 1 : gait - 1;
                     float cycle = index >= 0 && index < cycles.Length ? cycles[index] : 1.2f;
-                    stopWait = cycle / Mathf.Max(0.1f, ms.For(gait).playbackSpeed) + 0.05f;
+                    stopWait = cycle / Mathf.Max(0.1f, ms.For(gait).playbackSpeed * creep) + 0.05f;
                     // Above the stand fade's threshold, at the pace she walked.
                     heldMoveY = Mathf.Max(lastMoveY, 0.35f);
                 }
@@ -435,6 +449,8 @@ public class PlayerController : MonoBehaviour
                     if (ClipTag(StopTag)) stopWait = 0f;
                     else moveY = heldMoveY;
                 }
+                // The stop itself plays at the gait's pace.
+                if (stopWait <= 0f) creep = 1f;
             }
             if (!quickTurn && animator != null) animator.ResetTrigger(QuickTurnParameter);
             if (quickTurn) turnRate = 0f;
@@ -662,7 +678,7 @@ public class PlayerController : MonoBehaviour
         float gaitNow = Mathf.Abs(animator.GetFloat(MoveYParameter));
         float playback = gaitNow <= WalkGait ? ms.walk.playbackSpeed : gaitNow <= JogGait ? Mathf.Lerp(ms.walk.playbackSpeed, ms.jog.playbackSpeed, gaitNow - WalkGait)
             : Mathf.Lerp(ms.jog.playbackSpeed, ms.sprint.playbackSpeed, Mathf.Clamp01(gaitNow - JogGait));
-        animator.SetFloat(MoveSpeedParameter, free ? playback : 1f);
+        animator.SetFloat(MoveSpeedParameter, free ? playback * creep : 1f);
         animator.SetBool(UseStartParameter, ms.For(gait).startClip);
         animator.SetBool(UseStopParameter, ms.For(gait).stopClip);
         // Steering as fast as the pack's circle loops turn leans her fully into the curve.
@@ -724,7 +740,7 @@ public class PlayerController : MonoBehaviour
         Vector3 v = controller.velocity;
         v.y = 0f;
         AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
-        string text = $"stance {Stance()}  gait {gait}  pace {v.magnitude:F2} m/s\n" +
+        string text = $"stance {Stance()}  gait {gait}  pace {v.magnitude:F2} m/s{(creep < 1f ? $"  creep x{creep:F2}" : "")}\n" +
             $"MoveY {animator.GetFloat(MoveYParameter):F2}  MoveX {animator.GetFloat(MoveXParameter):F2}  speed x{animator.GetFloat(MoveSpeedParameter):F2}\n" +
             $"turn {turnRate:F0} deg/s  lean {animator.GetFloat(TurnParameter):F2}  on the spot {turningOnSpot}\n" +
             $"state {StateName(state.shortNameHash)} {state.normalizedTime % 1f:F2}{(animator.IsInTransition(0) ? " -> " + StateName(animator.GetNextAnimatorStateInfo(0).shortNameHash) : "")}" +
