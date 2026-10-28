@@ -57,6 +57,8 @@ MonoBehaviour:
     m_PostInfinity: 2
     m_RotationOrder: 4
   creepPlayback: 0.6
+  sprintTaps: 2
+  sprintTapWindow: 0.5
   walk:
     playbackSpeed: 1
     blendTime: 0.15

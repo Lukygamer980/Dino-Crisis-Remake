@@ -59,6 +59,12 @@ public class PlayerMovementSettings : ScriptableObject
     [Tooltip("The creep at the bottom of the stick's range: the walk played this much slower, so its root motion slows with it and the feet stay planted.")]
     [Range(0.3f, 1f)] public float creepPlayback = 0.6f;
 
+    [Header("Run button")]
+    [Tooltip("Holding the run button jogs at least. This many presses in a row, each within the tap window of the last, sprints.")]
+    [Range(1, 4)] public int sprintTaps = 2;
+    [Tooltip("Tapping the run button again within this many seconds keeps the sprint going; once the taps stop, she drops back to a jog (or the stick's pace) this long after the last one.")]
+    [Range(0.2f, 1.2f)] public float sprintTapWindow = 0.5f;
+
     [Header("Gaits")]
     public Gait walk = new() { blendTime = 0.15f, maxTurnRate = 260f, turnResponse = 5f, turnAcceleration = 700f };
     public Gait jog = new() { blendTime = 0.2f, maxTurnRate = 240f, turnResponse = 5f, turnAcceleration = 700f };

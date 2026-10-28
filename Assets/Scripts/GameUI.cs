@@ -12,8 +12,8 @@ public class GameUI : MonoBehaviour
     public string startRoomName = "";
 
     const string ControlsHelp =
-        "Mouse / right stick look   WASD / left stick move   Shift / Square run   E / Cross interact   Space / R1 jump\n" +
-        "Hold right mouse / L2 to aim over the shoulder   Left mouse / J / R2 shoots, even on the move   R / Triangle reload\n" +
+        "Mouse / right stick look   WASD / left stick move (push further to go faster)   Shift / Cross hold to jog, tap again and again to sprint\n" +
+        "E / Triangle interact   Space / R1 jump   Hold right mouse / L2 to aim over the shoulder   Left mouse / J / R2 shoots, even on the move   R / Square reload\n" +
         "C / Circle crouch   H / D-pad up holster or draw   Esc releases the mouse";
 
     float fadeAlpha = 1f;

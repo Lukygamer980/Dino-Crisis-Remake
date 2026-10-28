@@ -3,7 +3,8 @@ using UnityEngine.InputSystem;
 
 // The game's controls, from the Input Actions asset in Assets/Resources/Controls.inputactions.
 // Every action binds keyboard and mouse and the standard gamepad layout, so a DualSense and an
-// Xbox pad work alike: buttonSouth is Cross / A, buttonWest is Square / X, start is Options / Menu.
+// Xbox pad work alike: buttonSouth is Cross / A (run), buttonNorth Triangle / Y (interact),
+// buttonWest Square / X (reload), start is Options / Menu.
 public static class GameInput
 {
     static InputActionMap map;

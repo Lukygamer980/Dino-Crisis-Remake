@@ -5,8 +5,8 @@ using UnityEngine;
 // turns to face where she is heading. The MocapOnline pack's root motion moves her: every frame the
 // Animator's step goes to the CharacterController, so her feet carry her exactly as far as the clips
 // step, at the pace they were recorded. PlayerController only picks the gait (how far the stick is
-// pushed sets a creep, a walk or a jog; the run button sprints), steers her toward the stick on the
-// move, and asks the Animator to turn her on the spot
+// pushed sets a creep, a walk or a jog; holding the run button jogs, tapping it sprints), steers her
+// toward the stick on the move, and asks the Animator to turn her on the spot
 // when she stands facing well away; the turn clips' own rotation turns her then.
 // Holding aim turns her with the camera and lets her strafe; shots go to the crosshair at the center
 // of the screen, also on the move. She can crouch, jump, reload, and holster or draw the pistol;
@@ -122,8 +122,13 @@ public class PlayerController : MonoBehaviour
     // The last MoveY she asked for on the move, which a waiting stop holds.
     float lastMoveY;
     // With the stick pushed only a little she creeps: the walk played this much slower (1 at a walk
-    // and faster). A waiting stop keeps it, so her steps carry on at the same pace.
-    float creep = 1f;
+    // and faster). A waiting stop keeps it, so her steps carry on at the same pace. The Animator gets
+    // it eased, so the playback never jumps.
+    float creep = 1f, easedCreep = 1f;
+    // Presses of the run button in a row, the last one's time, and whether they add up to a sprint.
+    int runTaps;
+    float lastRunTap = -10f;
+    bool sprinting;
     // The gait she asks for: walk 1, jog 2, run 3. It stays at the last one when she lets go, so the
     // Animator picks the stop that fits.
     int gait = 1;
@@ -245,11 +250,13 @@ public class PlayerController : MonoBehaviour
         // How fast the stick asks her to go (Player Movement's stick pace): the keys walk.
         float stickPace = deflection <= 0f ? 0f : fromKeys ? WalkGait : Mathf.Max(0f, Movement.stickPace.Evaluate(deflection));
         bool running = canAct && GameInput.Run.IsPressed();
+        UpdateSprint(canAct);
         // Running gets her up off her knees.
         if (running && IsCrouching && move != Vector3.zero) TryStandUp();
         wantsToMove = move != Vector3.zero;
 
-        Steer(move, stickPace, running, view);
+        // A tap jogs until the tap window has passed, so the next tap sprints without a walk between.
+        Steer(move, stickPace, running || canAct && Time.time - lastRunTap <= Movement.sprintTapWindow, view);
 
         if (canAct)
         {
@@ -294,6 +301,19 @@ public class PlayerController : MonoBehaviour
     }
 
     // ---- Moving and turning ----
+
+    // Tapping the run button again and again sprints (Player Movement's sprint taps and tap window);
+    // holding it only jogs. A press after the window has passed starts the count over.
+    void UpdateSprint(bool canAct)
+    {
+        PlayerMovementSettings ms = Movement;
+        if (canAct && GameInput.Run.WasPressedThisFrame())
+        {
+            runTaps = Time.time - lastRunTap <= ms.sprintTapWindow ? runTaps + 1 : 1;
+            lastRunTap = Time.time;
+        }
+        sprinting = canAct && runTaps >= ms.sprintTaps && Time.time - lastRunTap <= ms.sprintTapWindow;
+    }
 
     // The Animator's step for this frame. A turn clip's own rotation turns her; on the move
     // PlayerController steers her instead, so the circle loops only lean her.
@@ -357,10 +377,6 @@ public class PlayerController : MonoBehaviour
         {
             stopWait = 0f;
             creep = 1f;
-        }
-
-        if (IsAiming)
-        {
             float error = Mathf.DeltaAngle(yaw, view.eulerAngles.y);
             if (wantsToMove)
             {
@@ -395,9 +411,11 @@ public class PlayerController : MonoBehaviour
             bool quickTurn = false;
             if (wantsToMove)
             {
-                // The stick sets the pace from a creep to a jog; the run button sprints (badly hurt, it
-                // only jogs). Crouched she creeps or walks.
-                float pace = IsCrouching ? Mathf.Min(stickPace, WalkGait) : running ? (Status == "DANGER" ? JogGait : RunGait) : stickPace;
+                // The stick sets the pace from a creep to a jog; holding the run button jogs at least,
+                // tapping it sprints (badly hurt, only jogs). Crouched she creeps or walks.
+                float pace = IsCrouching ? Mathf.Min(stickPace, WalkGait)
+                    : sprinting ? (Status == "DANGER" ? JogGait : RunGait)
+                    : running ? Mathf.Max(stickPace, JogGait) : stickPace;
                 gait = pace > 2.5f ? 3 : pace > 1.5f ? 2 : 1;
                 creep = pace < WalkGait ? Mathf.Lerp(ms.creepPlayback, 1f, pace) : 1f;
                 PlayerMovementSettings.Gait g = ms.For(gait);
@@ -678,7 +696,8 @@ public class PlayerController : MonoBehaviour
         float gaitNow = Mathf.Abs(animator.GetFloat(MoveYParameter));
         float playback = gaitNow <= WalkGait ? ms.walk.playbackSpeed : gaitNow <= JogGait ? Mathf.Lerp(ms.walk.playbackSpeed, ms.jog.playbackSpeed, gaitNow - WalkGait)
             : Mathf.Lerp(ms.jog.playbackSpeed, ms.sprint.playbackSpeed, Mathf.Clamp01(gaitNow - JogGait));
-        animator.SetFloat(MoveSpeedParameter, free ? playback * creep : 1f);
+        easedCreep = Mathf.MoveTowards(easedCreep, creep, 2f * dt);
+        animator.SetFloat(MoveSpeedParameter, free ? playback * easedCreep : 1f);
         animator.SetBool(UseStartParameter, ms.For(gait).startClip);
         animator.SetBool(UseStopParameter, ms.For(gait).stopClip);
         // Steering as fast as the pack's circle loops turn leans her fully into the curve.
@@ -897,7 +916,7 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        GameUI.Instance.SetPrompt(nearest != null ? "[E / Cross] " + nearest.Prompt : null);
+        GameUI.Instance.SetPrompt(nearest != null ? "[E / Triangle] " + nearest.Prompt : null);
         if (nearest != null && GameInput.Interact.WasPressedThisFrame()) nearest.Interact(this);
     }
 
