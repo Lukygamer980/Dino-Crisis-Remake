@@ -112,6 +112,15 @@ public class PlayerMovementSettings : ScriptableObject
     [Tooltip("How quickly that turn builds up and eases off onto the stick, in degrees per second squared.")]
     [Range(1000f, 20000f)] public float turnStartAcceleration = 8000f;
 
+    [Header("Turning about at a sprint")]
+    [Tooltip("Sprinting (holstered or with the pistol down), swinging the stick farther round than this plays the turn-about clip instead of the quick turn about. It can be cut short like a quarter turn.")]
+    [Range(90f, 180f)] public float sprintTurnAngle = 135f;
+    [Tooltip("Only this fast and faster (2 jog, 3 sprint); slower, the quick turn about turns her.")]
+    [Range(2f, 3f)] public float sprintTurnMinPace = 2.5f;
+    [Header("Turning about at a sprint (Animator, rebuild)")]
+    [Tooltip("The turn-about clips play as fast as the sprint runs, but no faster than this times as recorded (the pistol's Mixamo turn is from a slower run).")]
+    [Range(1f, 2.5f)] public float sprintTurnMaxPlayback = 2f;
+
     [Header("Turning about on the move")]
     [Tooltip("Jogging or sprinting, swinging the stick farther round than this turns her about quickly. The packs have no turn-about clip, so the gait plays on while she turns.")]
     [Range(90f, 180f)] public float pivotAngle = 135f;

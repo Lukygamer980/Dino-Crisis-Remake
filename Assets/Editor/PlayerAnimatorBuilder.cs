@@ -10,7 +10,8 @@ using Object = UnityEngine.Object;
 //
 // The model is picked in the Player Character asset (see PlayerCharacterSetup); by default it is the
 // pack's own MotusMan, the skeleton the clips were recorded on. Every clip plays at the speed it was
-// recorded at, except turns on the spot (Player Movement's turn-in-place and quarter turn speeds), and root motion moves
+// recorded at, except turns on the spot (Player Movement's turn-in-place and quarter turn speeds) and the
+// Mixamo turns about at a sprint (as fast as the sprint), and root motion moves
 // her: PlayerController hands each frame's animated step to the CharacterController, so her feet
 // carry her exactly as far as they step. Turns on the spot and the quarter turns turn her by their
 // own root rotation. On the move PlayerController steers her toward the stick, and the pack's circle
@@ -43,6 +44,9 @@ public static class PlayerAnimatorBuilder
     // The Mobility pack, and a hurt idle (from Mixamo) for standing badly hurt with empty hands.
     const string Mobility = "Assets/Animations/Mobility_Basic/Animation/";
     const string InjuredIdlePath = "Assets/Animations/Injured Idle.fbx";
+    // Mixamo turns about from a run, without and with the pistol; each turns to the right.
+    const string SprintTurnPath = "Assets/Animations/Running Turn 180.fbx";
+    const string PistolSprintTurnPath = "Assets/Animations/Pistol Running 180 Turn.fbx";
     const string Generated = "Assets/Characters/Player/Generated";
 
     // Gaits in the movement blends, as the MoveX/MoveY radius PlayerController asks for: the clips
@@ -267,6 +271,9 @@ public static class PlayerAnimatorBuilder
             s.stop = s.Add("Stop", runStop, "Move");
             s.fidget = s.Add("Look Around", fidget);
             s.gaitLoops = new[] { walk, jog, run };
+            // Mirrored, the pistol turn would hold the pistol in the wrong hand, so she turns right either
+            // way. Badly hurt she only jogs, so has no turn about.
+            if (id == Relaxed) SprintTurns(s, TurnAboutClip(PistolSprintTurnPath), run, ms, mirrorLeft: false);
         }
 
         // Aiming: strafes in every direction; walking and jogging forward lean into curves.
@@ -351,6 +358,7 @@ public static class PlayerAnimatorBuilder
                 (s.Add("Jog Turn Left", M("Jog_L_90", true), "Quarter"), -1, 1.5f, 2.5f), (s.Add("Jog Turn Right", M("Jog_R_90", true), "Quarter"), 1, 1.5f, 2.5f),
             };
             s.gaitLoops = new[] { mWalk, mJog, mRun };
+            if (id == Unarmed) SprintTurns(s, TurnAboutClip(SprintTurnPath), mRun, ms, mirrorLeft: true);
             if (id == Unarmed)
             {
                 s.fidget = s.Add("Wait", M("Stand_Relaxed_Fgt_v1"));
@@ -534,6 +542,22 @@ public static class PlayerAnimatorBuilder
                 ExitTo(turn, s.idle, 0.85f, 0.25f, Off("Moving"));
             }
         }
+        // Turning about at a sprint, picked by TurnSide where the clip is mirrored for the left; it can be
+        // cut short, and runs on into the sprint the other way.
+        foreach (StanceStates s in stances.Values)
+        {
+            if (s.sprintTurnRight == null) continue;
+            foreach ((AnimatorState turn, int side) in new[] { (s.sprintTurnLeft, -1), (s.sprintTurnRight, 1) })
+            {
+                if (turn == null) continue;
+                // The clips are short (a third of a second as played), so they blend quickly to keep their turn.
+                if (s.sprintTurnLeft == null) Interruptible(Go(s.move, turn, 0.05f, On("SprintTurn")));
+                else Interruptible(Go(s.move, turn, 0.05f, On("SprintTurn"), Is("TurnSide", side)));
+                CutShort(turn, s);
+                ExitTo(turn, s.move, 0.95f, 0.1f, On("Moving"));
+                ExitTo(turn, s.idle, 0.95f, 0.25f, Off("Moving"));
+            }
+        }
         // Otherwise back to a stand once she has slowed (PlayerController holds the gait while a stop
         // waits for its foot).
         foreach (StanceStates s in stances.Values) Go(s.move, s.idle, ms.moveToIdleBlend, Off("Moving"), Below("MoveY", 0.3f), Above("MoveY", -0.3f));
@@ -689,6 +713,8 @@ public static class PlayerAnimatorBuilder
     {
         readonly AnimatorStateMachine machine;
         public AnimatorState idle, move, turnLeft, turnRight, quickLeft, quickRight, start, stop, fidget, fidgetAlt;
+        // Turning about at a sprint; without a mirrored clip for the left, only the right one.
+        public AnimatorState sprintTurnLeft, sprintTurnRight;
         // Setting off into a walk, a jog or a run; the last steps from each; and turns on the move,
         // with the side and the MoveY range they play in.
         public AnimatorState[] starts, stops;
@@ -1309,6 +1335,56 @@ public static class PlayerAnimatorBuilder
         return Load(path, clips[0].name);
     }
 
+    // A Mixamo turn about from a run, on its own humanoid avatar: it turns and travels by root motion
+    // (rotation and XZ, following the body), the height kept in the pose.
+    static AnimationClip TurnAboutClip(string path)
+    {
+        if (AssetImporter.GetAtPath(path) is not ModelImporter importer) throw new InvalidOperationException("Missing " + path);
+        // The rig first: the clip settings below need the humanoid avatar.
+        if (importer.animationType != ModelImporterAnimationType.Human || importer.avatarSetup != ModelImporterAvatarSetup.CreateFromThisModel
+            || importer.materialImportMode != ModelImporterMaterialImportMode.None)
+        {
+            importer.animationType = ModelImporterAnimationType.Human;
+            importer.avatarSetup = ModelImporterAvatarSetup.CreateFromThisModel;
+            importer.materialImportMode = ModelImporterMaterialImportMode.None;
+            importer.SaveAndReimport();
+        }
+        ModelImporterClipAnimation[] clips = importer.clipAnimations;
+        if (clips == null || clips.Length == 0) clips = importer.defaultClipAnimations;
+        ModelImporterClipAnimation clip = clips[0];
+        string name = System.IO.Path.GetFileNameWithoutExtension(path);
+        if (clip.name != name || clip.loopTime || clip.lockRootRotation || clip.keepOriginalOrientation || !clip.lockRootHeightY || !clip.keepOriginalPositionY
+            || clip.lockRootPositionXZ || clip.keepOriginalPositionXZ)
+        {
+            clip.name = name;
+            clip.loopTime = false;
+            clip.lockRootRotation = clip.keepOriginalOrientation = false;
+            clip.lockRootHeightY = clip.keepOriginalPositionY = true;
+            clip.lockRootPositionXZ = clip.keepOriginalPositionXZ = false;
+            importer.clipAnimations = clips;
+            importer.SaveAndReimport();
+        }
+        return Load(path, name);
+    }
+
+    // A stance's turns about at a sprint (tagged TurnAbout, so their root rotation turns her), played as
+    // fast as its sprint loop runs as she comes into them, up to Player Movement's cap.
+    static void SprintTurns(StanceStates s, AnimationClip clip, AnimationClip sprint, PlayerMovementSettings ms, bool mirrorLeft)
+    {
+        AnimationCurve forward = Curve(clip, "RootT.z");
+        float entry = forward != null ? (forward.Evaluate(0.1f) - forward.Evaluate(0f)) / 0.1f : 0f;
+        float speed = entry > 0.1f ? Mathf.Clamp(sprint.averageSpeed.magnitude / entry, 1f, ms.sprintTurnMaxPlayback) : 1f;
+        s.sprintTurnRight = s.Add("Sprint Turn Right", clip, "TurnAbout");
+        s.sprintTurnRight.speed = speed;
+        if (mirrorLeft)
+        {
+            s.sprintTurnLeft = s.Add("Sprint Turn Left", clip, "TurnAbout");
+            s.sprintTurnLeft.mirror = true;
+            s.sprintTurnLeft.speed = speed;
+        }
+        Debug.Log($"{clip.name}: comes in at {entry:F2} m/s against the sprint's {sprint.averageSpeed.magnitude:F2}, played x{speed:F2}");
+    }
+
     // Takes out an extra clip an earlier build cut from a file.
     static void RemoveTake(string path, string name)
     {
@@ -1430,7 +1506,7 @@ public static class PlayerAnimatorBuilder
             controller.AddParameter(name, AnimatorControllerParameterType.Bool);
         foreach (string name in new[] { "Stance", "JumpKind", "DeathDir", "TurnSide", "Weapon", "Gait", "IdleVariant" })
             controller.AddParameter(name, AnimatorControllerParameterType.Int);
-        foreach (string name in new[] { "Fire", "Reload", "Draw", "Holster", "Swap", "Jump", "QuickTurn", "Hit", "Dead" })
+        foreach (string name in new[] { "Fire", "Reload", "Draw", "Holster", "Swap", "Jump", "QuickTurn", "SprintTurn", "Hit", "Dead" })
             controller.AddParameter(name, AnimatorControllerParameterType.Trigger);
         AnimatorControllerParameter[] parameters = controller.parameters;
         foreach (AnimatorControllerParameter parameter in parameters)

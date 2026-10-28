@@ -112,6 +112,9 @@ MonoBehaviour:
   turnStartAngle: 45
   turnStartRate: 900
   turnStartAcceleration: 8000
+  sprintTurnAngle: 135
+  sprintTurnMinPace: 2.5
+  sprintTurnMaxPlayback: 2
   pivotAngle: 135
   pivotMinPace: 1.5
   pivotTurnRate: 720
