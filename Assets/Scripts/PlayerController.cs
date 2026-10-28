@@ -108,8 +108,9 @@ public class PlayerController : MonoBehaviour
     // A turn on the move can't turn back: swinging the stick round ends it instead.
     float quarterTurned;
     bool quarterOnTheMove;
-    // Turning about on the move (Player Movement's pivot), and to which side.
-    bool pivoting;
+    // Turning about on the move (Player Movement's pivot), or turning quickly as she sets off (its turn
+    // start), and to which side.
+    bool pivoting, startTurning;
     // A turn about cut short (let go, or the clip changed) still turning faster than steering does:
     // it eases off at the pivot's rate, so she doesn't spin on.
     bool pivotWindingDown;
@@ -494,12 +495,22 @@ public class PlayerController : MonoBehaviour
                 if (!pivoting && onTheMove && movingPace >= ms.pivotMinPace && Mathf.Abs(error) > ms.pivotAngle)
                 {
                     pivoting = true;
+                    startTurning = false;
                     pivotSide = Mathf.Abs(turnRate) > 1f ? (turnRate < 0f ? -1 : 1) : turnSide;
                 }
-                if (pivoting && !onTheMove) pivoting = false;
+                // Standing up, holstered or with the pistol down, the stick well off her facing sets her
+                // off at once, turning quickly toward it as she steps out (Player Movement's turn start)
+                // instead of stepping round on the spot first.
+                if (!pivoting && !onTheMove && !quarterTurning && !IsCrouching && Mathf.Abs(error) > ms.turnStartAngle)
+                {
+                    pivoting = startTurning = true;
+                    pivotSide = turnSide;
+                    turningOnSpot = false;
+                }
+                if (pivoting && !onTheMove && !startTurning) pivoting = false;
                 else if (pivoting && Mathf.Abs(error) < ms.pivotEndAngle)
                 {
-                    pivoting = false;
+                    pivoting = startTurning = false;
                     pivotEnded = true;
                 }
                 else if (pivoting && Mathf.Abs(error) < FacingAway) pivotSide = turnSide;
@@ -515,10 +526,11 @@ public class PlayerController : MonoBehaviour
                         quickTurn = true;
                     }
                 }
-                // Holstered and standing, a turn of more than quarterTurnMax (Player Movement) is stepped round on the
-                // spot, since two quarter turns would take seconds.
-                else if (unarmed && !onTheMove && Mathf.Abs(error) > ms.quarterTurnMax) turningOnSpot = true;
-                else if (unarmed && !turningOnSpot && !clipTurning && !pivoting && animator != null && rootMotion != null
+                // Setting off with a turn, she doesn't turn on the spot. Otherwise, holstered and crouched, a
+                // turn of more than quarterTurnMax (Player Movement) is stepped round on the spot, since two
+                // quarter turns would take seconds.
+                else if (unarmed && !startTurning && !onTheMove && Mathf.Abs(error) > ms.quarterTurnMax) turningOnSpot = true;
+                else if (unarmed && !startTurning && !turningOnSpot && !clipTurning && !pivoting && animator != null && rootMotion != null
                     && Mathf.Abs(error) > (onTheMove ? g.turnClipAngle : ms.quarterTurnAngle) && (!onTheMove || (gait < 3 && !IsCrouching && g.turnClipAngle < 180f)))
                 {
                     // Holstered, the Mobility pack turns her: a quarter turn from a stand (crouched too),
@@ -528,14 +540,14 @@ public class PlayerController : MonoBehaviour
                     turningOnSpot = false;
                 }
                 // Standing and facing well away, she steps round on the spot first and sets off once nearly there.
-                else if (!unarmed && !onTheMove && Mathf.Abs(error) > (free ? ms.turnOnSpotAngle : ms.crouchTurnOnSpotAngle)) turningOnSpot = true;
+                else if (!unarmed && !startTurning && !onTheMove && Mathf.Abs(error) > (free ? ms.turnOnSpotAngle : ms.crouchTurnOnSpotAngle)) turningOnSpot = true;
                 else if (Mathf.Abs(error) < 30f) turningOnSpot = false;
                 if (pivoting)
                 {
                     // As fast as it can still ease off in the angle left, so she stops turning where the
                     // stick points instead of spinning past it.
                     float left = pivotSide * error >= 0f ? Mathf.Abs(error) : 360f - Mathf.Abs(error);
-                    targetRate = pivotSide * Mathf.Min(ms.pivotTurnRate, Mathf.Sqrt(2f * ms.pivotAcceleration * left));
+                    targetRate = pivotSide * Mathf.Min(startTurning ? ms.turnStartRate : ms.pivotTurnRate, Mathf.Sqrt(2f * PivotAcceleration * left));
                     moveY = Mathf.Max(WalkGait, pace * ms.pivotPaceShare);
                 }
                 else if (!turningOnSpot)
@@ -552,7 +564,7 @@ public class PlayerController : MonoBehaviour
             else
             {
                 turningOnSpot = false;
-                pivoting = false;
+                pivoting = startTurning = false;
                 // Letting go ends a quarter turn where she is.
                 turnDone = quarterTurning;
                 // Letting go: a stop clip that starts on a given foot waits for it, so she walks on at
@@ -584,13 +596,16 @@ public class PlayerController : MonoBehaviour
         // The clip turns her on the spot; on the move, turns build up and ease off rather than snapping,
         // also as a turn clip takes over. Steering picks up as soon as a quarter turn is over.
         if (clipTurning && !(turnDone && wantsToMove) || turningOnSpot || !wantsToMove) targetRate = 0f;
-        if (IsAiming) pivoting = false;
+        if (IsAiming) pivoting = startTurning = false;
         if (pivoting) pivotWindingDown = true;
         else if (Mathf.Abs(turnRate) <= (wantsToMove ? ms.For(gait).maxTurnRate : 1f)) pivotWindingDown = false;
-        float ease = pivotWindingDown ? ms.pivotAcceleration : IsAiming ? ms.aimTurnAcceleration : ms.For(gait).turnAcceleration;
+        float ease = pivotWindingDown ? PivotAcceleration : IsAiming ? ms.aimTurnAcceleration : ms.For(gait).turnAcceleration;
         turnRate = pivotEnded ? targetRate : Mathf.MoveTowards(turnRate, targetRate, ease * Time.deltaTime);
         transform.Rotate(0f, turnRate * Time.deltaTime, 0f);
     }
+
+    // How quickly the turn about, or the turn as she sets off, builds up and eases off.
+    float PivotAcceleration => startTurning ? Movement.turnStartAcceleration : Movement.pivotAcceleration;
 
     // Asks the Animator for a quarter turn to this side, from a stand or (the pack's turn) on the move.
     void QuarterTurn(int side, bool onTheMove)

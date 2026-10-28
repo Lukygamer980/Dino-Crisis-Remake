@@ -109,6 +109,9 @@ MonoBehaviour:
   aimTurnAcceleration: 1200
   aimTurnAngle: 24
   aimQuarterTurnAngle: 80
+  turnStartAngle: 45
+  turnStartRate: 900
+  turnStartAcceleration: 8000
   pivotAngle: 135
   pivotMinPace: 1.5
   pivotTurnRate: 720

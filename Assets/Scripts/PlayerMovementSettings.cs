@@ -104,6 +104,14 @@ public class PlayerMovementSettings : ScriptableObject
     [Tooltip("Aiming and standing, the camera this far off her facing turns her a quarter turn at once.")]
     [Range(30f, 180f)] public float aimQuarterTurnAngle = 80f;
 
+    [Header("Setting off with a turn")]
+    [Tooltip("Standing up, holstered or with the pistol down, the stick farther off her facing than this sets her off at once while she turns toward it, instead of turning on the spot first.")]
+    [Range(10f, 180f)] public float turnStartAngle = 45f;
+    [Tooltip("How fast she turns as she sets off, in degrees per second.")]
+    [Range(180f, 1440f)] public float turnStartRate = 900f;
+    [Tooltip("How quickly that turn builds up and eases off onto the stick, in degrees per second squared.")]
+    [Range(1000f, 20000f)] public float turnStartAcceleration = 8000f;
+
     [Header("Turning about on the move")]
     [Tooltip("Jogging or sprinting, swinging the stick farther round than this turns her about quickly. The packs have no turn-about clip, so the gait plays on while she turns.")]
     [Range(90f, 180f)] public float pivotAngle = 135f;
@@ -119,11 +127,11 @@ public class PlayerMovementSettings : ScriptableObject
     [Range(1f, 45f)] public float pivotEndAngle = 5f;
 
     [Header("Standing")]
-    [Tooltip("With the pistol down and standing, facing farther off than this she turns on the spot before setting off.")]
+    [Tooltip("With the pistol down and standing, facing farther off than this she turns on the spot before setting off. Only when the turn start angle is higher: below it she turns as she sets off.")]
     [Range(30f, 180f)] public float turnOnSpotAngle = 120f;
     [Tooltip("The same crouched with the pistol down.")]
     [Range(30f, 180f)] public float crouchTurnOnSpotAngle = 50f;
-    [Tooltip("Holstered and standing, facing farther off than this she turns with the pack's quarter turn...")]
+    [Tooltip("Holstered and crouched (standing too, if the turn start angle is higher), facing farther off than this she turns with the pack's quarter turn...")]
     [Range(30f, 180f)] public float quarterTurnAngle = 60f;
     [Tooltip("...and farther off than this she steps round on the spot instead, since two quarter turns take seconds.")]
     [Range(60f, 180f)] public float quarterTurnMax = 120f;
