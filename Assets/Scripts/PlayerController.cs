@@ -5,7 +5,7 @@ using UnityEngine;
 // turns to face where she is heading. The MocapOnline pack's root motion moves her: every frame the
 // Animator's step goes to the CharacterController, so her feet carry her exactly as far as the clips
 // step, at the pace they were recorded. PlayerController only picks the gait (how far the stick is
-// pushed sets a creep, a walk or a jog; holding the run button jogs, tapping it sprints), steers her
+// pushed sets a creep or a walk; holding the run button jogs, tapping it sprints), steers her
 // toward the stick on the move, and asks the Animator to turn her on the spot
 // when she stands facing well away; the turn clips' own rotation turns her then.
 // Holding aim turns her with the camera and lets her strafe; shots go to the crosshair at the center
@@ -131,10 +131,11 @@ public class PlayerController : MonoBehaviour
     // and faster). A waiting stop keeps it, so her steps carry on at the same pace. The Animator gets
     // it eased, so the playback never jumps.
     float creep = 1f, easedCreep = 1f;
-    // Presses of the run button in a row, the last one's time, and whether they add up to a sprint.
+    // The run button: taps in a row so far, when the last press came, whether those presses are still
+    // taps (none held past the hold threshold), and what they ask for: a jog, or a sprint.
     int runTaps;
-    float lastRunTap = -10f;
-    bool sprinting;
+    float lastRunPress = -10f;
+    bool runTapping, runJog, sprinting;
     // The gait she asks for: walk 1, jog 2, run 3. It stays at the last one when she lets go, so the
     // Animator picks the stop that fits.
     int gait = 1;
@@ -255,15 +256,14 @@ public class PlayerController : MonoBehaviour
         Vector2 stick = canAct ? GameInput.MoveStick(out fromKeys) : Vector2.zero;
         float deflection = Movement.Deflection(stick.magnitude);
         Vector3 move = deflection > 0f ? view * new Vector3(stick.x, 0f, stick.y).normalized * deflection : Vector3.zero;
-        // How fast the stick asks her to go (Player Movement's stick pace): the keys walk.
-        float stickPace = deflection <= 0f ? 0f : fromKeys ? WalkGait : Mathf.Max(0f, Movement.stickPace.Evaluate(deflection));
-        bool running = canAct && GameInput.Run.IsPressed();
-        UpdateSprint(canAct);
+        // How fast the stick asks her to go (Player Movement's stick pace), a creep up to a walk: the keys walk.
+        float stickPace = deflection <= 0f ? 0f : fromKeys ? WalkGait : Mathf.Clamp(Movement.stickPace.Evaluate(deflection), 0f, WalkGait);
+        UpdateRunButton(canAct);
         // Running gets her up off her knees.
-        if (running && IsCrouching && move != Vector3.zero) TryStandUp();
+        if (canAct && GameInput.Run.IsPressed() && IsCrouching && move != Vector3.zero) TryStandUp();
         wantsToMove = move != Vector3.zero;
 
-        Steer(move, stickPace, running, view);
+        Steer(move, stickPace, view);
 
         if (canAct)
         {
@@ -309,17 +309,26 @@ public class PlayerController : MonoBehaviour
 
     // ---- Moving and turning ----
 
-    // Tapping the run button again and again sprints (Player Movement's sprint taps and tap window);
-    // holding it only jogs. A press after the window has passed starts the count over.
-    void UpdateSprint(bool canAct)
+    // The run button (Player Movement's run button settings). Every press jogs at once. Held past the
+    // hold threshold it is a hold: she jogs until it is let go, then walks. Taps in a row, each pressed
+    // within the tap window of the last, sprint for as long as they keep coming, with no jog or walk
+    // between them; once they stop she walks again.
+    void UpdateRunButton(bool canAct)
     {
         PlayerMovementSettings ms = Movement;
+        float now = Time.time;
+        bool pressed = canAct && GameInput.Run.IsPressed();
         if (canAct && GameInput.Run.WasPressedThisFrame())
         {
-            runTaps = Time.time - lastRunTap <= ms.sprintTapWindow ? runTaps + 1 : 1;
-            lastRunTap = Time.time;
+            runTaps = runTapping && now - lastRunPress <= ms.sprintTapWindow ? runTaps + 1 : 1;
+            lastRunPress = now;
+            runTapping = true;
         }
-        sprinting = canAct && runTaps >= ms.sprintTaps && Time.time - lastRunTap <= ms.sprintTapWindow;
+        // A press held past the threshold is a hold, which ends the taps.
+        if (pressed && now - lastRunPress > ms.holdThreshold) runTapping = false;
+        bool tapsGoing = canAct && runTapping && now - lastRunPress <= ms.sprintTapWindow;
+        runJog = pressed || tapsGoing;
+        sprinting = tapsGoing && runTaps >= ms.sprintTaps;
     }
 
     // The Animator's step for this frame. A turn clip's own rotation turns her; on the move
@@ -373,8 +382,8 @@ public class PlayerController : MonoBehaviour
 
     // Picks the gait and the turn. Free movement goes where she faces, so a turn on the move is a curve;
     // aiming, she faces the camera and strafes. `stickPace` is how fast the stick asks her to go:
-    // under 1 a creep, 1 the walk, 2 the jog.
-    void Steer(Vector3 move, float stickPace, bool running, Quaternion view)
+    // under 1 a creep, 1 the walk.
+    void Steer(Vector3 move, float stickPace, Quaternion view)
     {
         float yaw = transform.eulerAngles.y;
         float targetRate = 0f;
@@ -401,10 +410,10 @@ public class PlayerController : MonoBehaviour
                 turningOnSpot = false;
                 targetRate = Mathf.Clamp(error * ms.aimTurnResponse, -ms.aimMaxTurnRate, ms.aimMaxTurnRate);
                 // She keeps facing the camera and steps the stick's way round it, backing off when it
-                // points behind her. The stick sets the pace up to a walk; holding run jogs.
+                // points behind her. The stick sets the pace up to a walk; aiming she never runs.
                 Vector3 local = Quaternion.Inverse(transform.rotation) * move.normalized;
-                float pace = !IsCrouching && running ? JogGait : Mathf.Min(stickPace, WalkGait);
-                gait = pace > 1.5f ? 2 : 1;
+                float pace = Mathf.Min(stickPace, WalkGait);
+                gait = 1;
                 creep = pace < WalkGait ? Mathf.Lerp(ms.creepPlayback, 1f, pace) : 1f;
                 moveX = local.x * Mathf.Max(WalkGait, pace);
                 moveY = local.z * Mathf.Max(WalkGait, pace);
@@ -432,13 +441,11 @@ public class PlayerController : MonoBehaviour
             bool quickTurn = false;
             if (wantsToMove)
             {
-                // The stick sets the pace from a creep to a jog; holding the run button jogs at least,
-                // tapping it sprints (badly hurt, only jogs). Crouched she creeps or walks.
-                // A tap jogs until the tap window has passed, so the next tap sprints without a walk between.
-                bool jogging = running || Time.time - lastRunTap <= ms.sprintTapWindow;
-                float pace = IsCrouching ? Mathf.Min(stickPace, WalkGait)
+                // The stick sets the pace from a creep to a walk; the run button jogs, or sprints while
+                // tapped (badly hurt, only jogs). Crouched she creeps or walks.
+                float pace = IsCrouching ? stickPace
                     : sprinting ? (Status == "DANGER" ? JogGait : RunGait)
-                    : jogging ? Mathf.Max(stickPace, JogGait) : stickPace;
+                    : runJog ? JogGait : stickPace;
                 gait = pace > 2.5f ? 3 : pace > 1.5f ? 2 : 1;
                 creep = pace < WalkGait ? Mathf.Lerp(ms.creepPlayback, 1f, pace) : 1f;
                 PlayerMovementSettings.Gait g = ms.For(gait);
@@ -775,7 +782,10 @@ public class PlayerController : MonoBehaviour
         LocomotionProfile p = Profile;
         PlayerMovementSettings ms = Movement;
         bool free = !IsAiming;
-        float blend = free ? ms.For(gait).blendTime : 0.15f;
+        // Speeding up blends over the faster gait's blend time, slowing down on the move over Player
+        // Movement's slow down time.
+        bool slowing = wantsToMove && moveY < animator.GetFloat(MoveYParameter) - 0.05f;
+        float blend = !free ? 0.15f : slowing ? ms.slowDownTime : ms.For(gait).blendTime;
         animator.SetFloat(MoveXParameter, moveX, Mathf.Max(0.02f, blend * 0.7f), dt);
         animator.SetFloat(MoveYParameter, moveY, Mathf.Max(0.02f, blend), dt);
         // The gaits' playback speeds, blended as the gaits are.

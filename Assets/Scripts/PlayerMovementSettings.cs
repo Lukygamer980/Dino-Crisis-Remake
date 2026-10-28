@@ -54,16 +54,20 @@ public class PlayerMovementSettings : ScriptableObject
     [Range(0f, 0.5f)] public float deadzone = 0.12f;
     [Tooltip("Deflection past this counts as pushed all the way.")]
     [Range(0.5f, 1f)] public float outerDeadzone = 0.95f;
-    [Tooltip("How far the stick is pushed (0 just past the deadzone, 1 all the way) against the pace it asks for: 0 the slowest creep, 1 the walk, 2 the jog. Between 1 and 2 the walk and the jog blend. Keep it rising.")]
-    public AnimationCurve stickPace = Linear((0f, 0f), (0.5f, 1f), (0.8f, 1f), (1f, 2f));
+    [Tooltip("How far the stick is pushed (0 just past the deadzone, 1 all the way) against the pace it asks for: 0 the slowest creep, 1 the walk. The stick alone never goes past a walk (the run button jogs and sprints). Keep it rising.")]
+    public AnimationCurve stickPace = Linear((0f, 0f), (0.6f, 1f), (1f, 1f));
     [Tooltip("The creep at the bottom of the stick's range: the walk played this much slower, so its root motion slows with it and the feet stay planted.")]
     [Range(0.3f, 1f)] public float creepPlayback = 0.6f;
 
     [Header("Run button")]
-    [Tooltip("Holding the run button jogs at least. This many presses in a row, each within the tap window of the last, sprints.")]
+    [Tooltip("A press of the run button held longer than this is a hold: she jogs until it is let go, then walks. Shorter, it is a tap.")]
+    [Range(0.1f, 0.5f)] public float holdThreshold = 0.22f;
+    [Tooltip("Every press jogs at once. This many taps in a row, each pressed within the tap window of the last, sprints.")]
     [Range(1, 4)] public int sprintTaps = 2;
-    [Tooltip("Tapping the run button again within this many seconds keeps the sprint going; once the taps stop, she drops back to a jog (or the stick's pace) this long after the last one.")]
+    [Tooltip("Pressing again within this many seconds of the last tap keeps the jog (after one tap) or the sprint going; once the taps stop she walks again this long after the last one. Holding the button jogs.")]
     [Range(0.2f, 1.2f)] public float sprintTapWindow = 0.5f;
+    [Tooltip("Slowing down from one gait to a slower one (sprint to jog, jog to walk) blends over about this many seconds. Speeding up takes the faster gait's blend time.")]
+    [Range(0.05f, 1f)] public float slowDownTime = 0.35f;
 
     [Header("Gaits")]
     // The start skips set off about two frames before each Mobility start clip first moves her.

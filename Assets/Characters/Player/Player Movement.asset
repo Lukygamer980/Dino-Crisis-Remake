@@ -20,35 +20,26 @@ MonoBehaviour:
     - serializedVersion: 3
       time: 0
       value: 0
-      inSlope: 2
-      outSlope: 2
+      inSlope: 1.6666666
+      outSlope: 1.6666666
       tangentMode: 0
       weightedMode: 0
       inWeight: 0
       outWeight: 0
     - serializedVersion: 3
-      time: 0.5
+      time: 0.6
       value: 1
-      inSlope: 2
+      inSlope: 1.6666666
       outSlope: 0
       tangentMode: 0
       weightedMode: 0
       inWeight: 0
       outWeight: 0
     - serializedVersion: 3
-      time: 0.8
+      time: 1
       value: 1
       inSlope: 0
-      outSlope: 5.0000005
-      tangentMode: 0
-      weightedMode: 0
-      inWeight: 0
-      outWeight: 0
-    - serializedVersion: 3
-      time: 1
-      value: 2
-      inSlope: 5.0000005
-      outSlope: 5.0000005
+      outSlope: 0
       tangentMode: 0
       weightedMode: 0
       inWeight: 0
@@ -57,8 +48,10 @@ MonoBehaviour:
     m_PostInfinity: 2
     m_RotationOrder: 4
   creepPlayback: 0.6
+  holdThreshold: 0.22
   sprintTaps: 2
   sprintTapWindow: 0.5
+  slowDownTime: 0.35
   walk:
     playbackSpeed: 1
     blendTime: 0.15
