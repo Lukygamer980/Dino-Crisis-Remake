@@ -25,7 +25,7 @@ MonoBehaviour:
   muzzle: {x: 0, y: 0.045, z: 0.19}
   handSocketParent: hand_r_wep
   gripPosition: {x: 0, y: 0, z: 0}
-  gripRotation: {x: 0, y: 0, z: 0}
+  gripRotation: {x: 7.9, y: 22, z: 1.7}
   holsterSocketParent: Hips
   holsterPosition: {x: -0.089, y: 0.098, z: 0.145}
   holsterRotation: {x: 355.5, y: 96.5, z: 151}
