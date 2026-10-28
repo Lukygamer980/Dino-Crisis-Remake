@@ -59,11 +59,28 @@ public class PlayerMovementSettings : ScriptableObject
     [Tooltip("The creep at the bottom of the stick's range: the walk played this much slower, so its root motion slows with it and the feet stay planted.")]
     [Range(0.3f, 1f)] public float creepPlayback = 0.6f;
 
+    [Header("Setting off")]
+    [Tooltip("How fast the stick is pushed when she sets off, in deflection per second: this slow or slower is a gentle start...")]
+    [Range(0.5f, 10f)] public float gentlePushSpeed = 2f;
+    [Tooltip("...and this fast or faster a sharp one. In between, the start is as sharp as the push.")]
+    [Range(1f, 40f)] public float sharpPushSpeed = 12f;
+    [Tooltip("The start clip plays this much slower than recorded at the gentlest start...")]
+    [Range(0.5f, 1f)] public float gentleStartPlayback = 0.85f;
+    [Tooltip("...and this much faster at the sharpest. The root motion follows, so the feet stay planted.")]
+    [Range(1f, 1.5f)] public float sharpStartPlayback = 1.15f;
+    [Header("Setting off (Animator, rebuild)")]
+    [Tooltip("A start gentler than this (0 gentlest, 1 sharpest) keeps more of the start clip's first weight shift and blends in slower.")]
+    [Range(0f, 1f)] public float softSetOffBelow = 0.4f;
+    [Tooltip("A gentle start skips this share of the gait's start skip (0 plays the whole weight shift).")]
+    [Range(0f, 1f)] public float softStartSkipShare = 0.3f;
+    [Tooltip("A gentle start blends into the start clip over this many seconds.")]
+    [Range(0f, 0.6f)] public float softStartBlend = 0.3f;
+
     [Header("Run button")]
     [Tooltip("A press of the run button held longer than this is a hold: she jogs until it is let go, then walks. Shorter, it is a tap.")]
     [Range(0.1f, 0.5f)] public float holdThreshold = 0.22f;
     [Tooltip("Every press jogs at once. This many taps in a row, each pressed within the tap window of the last, sprints.")]
-    [Range(1, 4)] public int sprintTaps = 2;
+    [Range(2, 4)] public int sprintTaps = 2;
     [Tooltip("Pressing again within this many seconds of the last tap keeps the jog (after one tap) or the sprint going; once the taps stop she walks again this long after the last one. Holding the button jogs.")]
     [Range(0.2f, 1.2f)] public float sprintTapWindow = 0.5f;
     [Tooltip("Slowing down from one gait to a slower one (sprint to jog, jog to walk) blends over about this many seconds. Speeding up takes the faster gait's blend time.")]

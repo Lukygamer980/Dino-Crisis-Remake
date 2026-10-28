@@ -614,15 +614,18 @@ public static class PlayerAnimatorBuilder
 
     // ---- Stances ----
 
-    // Setting off from a stand or a look around: with the pack's start clip into the gait she asks for
-    // (skipping its first weight shift by the gait's start skip), else the aimed first step, else the
-    // plain blend into moving. Each can be cut short by letting go.
+    // Setting off from a stand or a look around: with the pack's start clip into the gait she asks for,
+    // else the aimed first step, else the plain blend into moving. A sharp push of the stick
+    // (SetOffEnergy) skips the start clip's first weight shift by the gait's start skip; a gentle one
+    // blends in slower and keeps the soft start skip's share of it. Each can be cut short by letting go.
     static void SetOff(AnimatorState from, StanceStates s, PlayerMovementSettings ms, float blend)
     {
         if (s.starts != null)
             for (int g = 0; g < s.starts.Length; g++)
             {
                 PlayerMovementSettings.Gait gait = ms.For(g + 1);
+                Interruptible(Go(from, s.starts[g], ms.softStartBlend, On("Moving"), Is("Gait", g + 1), On("UseStart"), Below("SetOffEnergy", ms.softSetOffBelow)))
+                    .offset = gait.startSkip * ms.softStartSkipShare;
                 Interruptible(Go(from, s.starts[g], gait.startBlend, On("Moving"), Is("Gait", g + 1), On("UseStart"))).offset = gait.startSkip;
             }
         if (s.start != null) Interruptible(Go(from, s.start, 0.15f, On("Moving"), Above("MoveY", 0.3f), Above("MoveX", -0.4f), Below("MoveX", 0.4f)));
@@ -1421,7 +1424,7 @@ public static class PlayerAnimatorBuilder
 
     static void AddParameters()
     {
-        foreach (string name in new[] { "MoveX", "MoveY", "Turn", "MoveSpeed", "AimPitch", "AimYaw", "AimBlend", "CrouchBlend", "UnarmedBlend", "IdleTime" })
+        foreach (string name in new[] { "MoveX", "MoveY", "Turn", "MoveSpeed", "SetOffEnergy", "AimPitch", "AimYaw", "AimBlend", "CrouchBlend", "UnarmedBlend", "IdleTime" })
             controller.AddParameter(name, AnimatorControllerParameterType.Float);
         foreach (string name in new[] { "IsAiming", "Moving", "TurnInPlace", "TurnDone", "Grounded", "IsDead", "RapidFire", "Unarmed", "UseStart", "UseStop" })
             controller.AddParameter(name, AnimatorControllerParameterType.Bool);

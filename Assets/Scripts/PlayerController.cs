@@ -131,6 +131,12 @@ public class PlayerController : MonoBehaviour
     // and faster). A waiting stop keeps it, so her steps carry on at the same pace. The Animator gets
     // it eased, so the playback never jumps.
     float creep = 1f, easedCreep = 1f;
+    // How fast the stick is being pushed (deflection per second, held at its peak a moment), and how
+    // sharp the push was that set her off (0 gentle, 1 sharp): the start clip plays slower or faster
+    // by it (eased), and the Animator skips more or less of its weight shift.
+    float lastStickMagnitude, stickSpeed;
+    float setOffEnergy = 1f, easedStart = 1f;
+    bool wantedToMove;
     // The run button: taps in a row so far, when the last press came, whether those presses are still
     // taps (none held past the hold threshold), and what they ask for: a jog, or a sprint.
     int runTaps;
@@ -168,6 +174,7 @@ public class PlayerController : MonoBehaviour
     static readonly int MoveYParameter = Animator.StringToHash("MoveY");
     static readonly int TurnParameter = Animator.StringToHash("Turn");
     static readonly int MoveSpeedParameter = Animator.StringToHash("MoveSpeed");
+    static readonly int SetOffEnergyParameter = Animator.StringToHash("SetOffEnergy");
     static readonly int AimPitchParameter = Animator.StringToHash("AimPitch");
     static readonly int AimYawParameter = Animator.StringToHash("AimYaw");
     static readonly int AimBlendParameter = Animator.StringToHash("AimBlend");
@@ -262,6 +269,7 @@ public class PlayerController : MonoBehaviour
         // Running gets her up off her knees.
         if (canAct && GameInput.Run.IsPressed() && IsCrouching && move != Vector3.zero) TryStandUp();
         wantsToMove = move != Vector3.zero;
+        ReadPush(stick.magnitude, fromKeys);
 
         Steer(move, stickPace, view);
 
@@ -308,6 +316,33 @@ public class PlayerController : MonoBehaviour
     }
 
     // ---- Moving and turning ----
+
+    // How sharply the stick is pushed as she sets off (Player Movement's gentle and sharp push speeds).
+    // The raw stick is read inside the deadzone too, so a slow push is seen as slow from its start.
+    // The keys are always a sharp push.
+    void ReadPush(float magnitude, bool fromKeys)
+    {
+        float dt = Time.deltaTime;
+        if (dt > 0f) stickSpeed = Mathf.Max((magnitude - lastStickMagnitude) / dt, stickSpeed * Mathf.Exp(-dt / PushMemory));
+        lastStickMagnitude = magnitude;
+        if (wantsToMove && !wantedToMove)
+            setOffEnergy = fromKeys ? 1f : Mathf.InverseLerp(Movement.gentlePushSpeed, Movement.sharpPushSpeed, stickSpeed);
+        wantedToMove = wantsToMove;
+    }
+
+    // How long a push's speed is remembered, in seconds.
+    const float PushMemory = 0.1f;
+
+    static readonly int[] StartStates = { Animator.StringToHash("Start Walk"), Animator.StringToHash("Start Jog"), Animator.StringToHash("Start Run"), Animator.StringToHash("First Step") };
+
+    // True while the base layer plays, or blends into, a start clip.
+    bool InStartClip()
+    {
+        if (animator == null) return false;
+        int current = animator.GetCurrentAnimatorStateInfo(0).shortNameHash;
+        int next = animator.IsInTransition(0) ? animator.GetNextAnimatorStateInfo(0).shortNameHash : 0;
+        return System.Array.IndexOf(StartStates, current) >= 0 || System.Array.IndexOf(StartStates, next) >= 0;
+    }
 
     // The run button (Player Movement's run button settings). Every press jogs at once. Held past the
     // hold threshold it is a hold: she jogs until it is let go, then walks. Taps in a row, each pressed
@@ -412,7 +447,7 @@ public class PlayerController : MonoBehaviour
                 // She keeps facing the camera and steps the stick's way round it, backing off when it
                 // points behind her. The stick sets the pace up to a walk; aiming she never runs.
                 Vector3 local = Quaternion.Inverse(transform.rotation) * move.normalized;
-                float pace = Mathf.Min(stickPace, WalkGait);
+                float pace = stickPace;
                 gait = 1;
                 creep = pace < WalkGait ? Mathf.Lerp(ms.creepPlayback, 1f, pace) : 1f;
                 moveX = local.x * Mathf.Max(WalkGait, pace);
@@ -793,7 +828,10 @@ public class PlayerController : MonoBehaviour
         float playback = gaitNow <= WalkGait ? ms.walk.playbackSpeed : gaitNow <= JogGait ? Mathf.Lerp(ms.walk.playbackSpeed, ms.jog.playbackSpeed, gaitNow - WalkGait)
             : Mathf.Lerp(ms.jog.playbackSpeed, ms.sprint.playbackSpeed, Mathf.Clamp01(gaitNow - JogGait));
         easedCreep = Mathf.MoveTowards(easedCreep, creep, 2f * dt);
-        animator.SetFloat(MoveSpeedParameter, (free ? playback : 1f) * easedCreep);
+        float startPlayback = InStartClip() ? Mathf.Lerp(ms.gentleStartPlayback, ms.sharpStartPlayback, setOffEnergy) : 1f;
+        easedStart = Mathf.MoveTowards(easedStart, startPlayback, 2f * dt);
+        animator.SetFloat(MoveSpeedParameter, (free ? playback : 1f) * easedCreep * easedStart);
+        animator.SetFloat(SetOffEnergyParameter, setOffEnergy);
         animator.SetBool(UseStartParameter, ms.For(gait).startClip);
         animator.SetBool(UseStopParameter, ms.For(gait).stopClip);
         // Steering as fast as the pack's circle loops turn leans her fully into the curve.
