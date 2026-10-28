@@ -267,7 +267,6 @@ public static class PlayerAnimatorBuilder
             s.stop = s.Add("Stop", runStop, "Move");
             s.fidget = s.Add("Look Around", fidget);
             s.gaitLoops = new[] { walk, jog, run };
-            s.free = true;
         }
 
         // Aiming: strafes in every direction; walking and jogging forward lean into curves.
@@ -352,7 +351,6 @@ public static class PlayerAnimatorBuilder
                 (s.Add("Jog Turn Left", M("Jog_L_90", true), "Quarter"), -1, 1.5f, 2.5f), (s.Add("Jog Turn Right", M("Jog_R_90", true), "Quarter"), 1, 1.5f, 2.5f),
             };
             s.gaitLoops = new[] { mWalk, mJog, mRun };
-            s.free = true;
             if (id == Unarmed)
             {
                 s.fidget = s.Add("Wait", M("Stand_Relaxed_Fgt_v1"));
@@ -375,19 +373,18 @@ public static class PlayerAnimatorBuilder
         uc.start = uc.Add("First Step", M("Crouch_To_CrouchWalk_F"), "Move");
         uc.stops = new[] { uc.Add("Stop", M("CrouchWalk_F_To_Crouch_RU"), "Move") };
         uc.gaitLoops = new[] { M("CrouchWalk_F_Loop") };
-        uc.free = true;
 
         foreach (StanceStates s in stances.Values)
         {
             foreach (AnimatorState turn in new[] { s.turnLeft, s.turnRight }) turn.speed = ms.turnInPlaceSpeed;
-            // The gait's playback speed (Player Movement) on moving, setting off and stopping.
-            if (s.free)
-                foreach (AnimatorState state in s.all)
-                    if (state.tag == "Move")
-                    {
-                        state.speedParameterActive = true;
-                        state.speedParameter = "MoveSpeed";
-                    }
+            // On moving, setting off and stopping, PlayerController's MoveSpeed: the gait's playback speed
+            // (Player Movement) in the free stances, and the creep with the stick pushed only a little.
+            foreach (AnimatorState state in s.all)
+                if (state.tag == "Move")
+                {
+                    state.speedParameterActive = true;
+                    state.speedParameter = "MoveSpeed";
+                }
             // Unity's Foot IK puts the feet where the clip's flat-footed actor put his; on heels that
             // bends the ankles, so it is a choice in the Player Character asset.
             foreach (AnimatorState state in s.all) state.iKOnFeet = setup.stateFootIK;
@@ -692,10 +689,8 @@ public static class PlayerAnimatorBuilder
         // Setting off into a walk, a jog or a run; the last steps from each; and turns on the move,
         // with the side and the MoveY range they play in.
         public AnimatorState[] starts, stops;
-        // The forward loop of each gait, to fit starts and stops to its steps; and whether the Player
-        // Movement asset's gaits drive this stance (standing up or crouched, not aiming).
+        // The forward loop of each gait, to fit starts and stops to its steps.
         public AnimationClip[] gaitLoops;
-        public bool free;
         public (AnimatorState state, int side, float above, float below)[] moveTurns;
         public readonly List<AnimatorState> all = new();
 

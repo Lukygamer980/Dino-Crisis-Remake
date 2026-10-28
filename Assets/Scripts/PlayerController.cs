@@ -29,18 +29,6 @@ public class PlayerController : MonoBehaviour
     [Tooltip("The gaits' tuning: walk, jog and sprint standing up, and the walk crouched. Edit the asset, also while playing.")]
     public PlayerMovementSettings movement;
     public LocomotionProfile locomotion;
-    [Tooltip("Aiming: how hard she turns toward the camera on the move, degrees per second for each degree off.")]
-    public float turnResponse = 5f;
-    [Tooltip("The fastest she turns on the move aiming, in degrees per second.")]
-    public float maxMovingTurnRate = 220f;
-    [Tooltip("How quickly a turn builds up and eases off aiming, in degrees per second squared.")]
-    public float turnAcceleration = 1200f;
-    [Tooltip("Crouched with the pistol down and standing, facing farther off than this she turns on the spot before setting off.")]
-    public float turnOnSpotAngle = 50f;
-    [Tooltip("Aiming and standing, the camera this far off her facing turns her on the spot, until she is within a third of it. The aim offset points the pistol across what is left.")]
-    public float aimTurnAngle = 24f;
-    [Tooltip("Aiming and standing, the camera this far off her facing turns her a quarter turn at once.")]
-    public float quickTurnAngle = 80f;
     public float jumpSpeed = 4.6f;
     public float standingHeight = 1.7f;
     public float crouchingHeight = 1.15f;
@@ -120,10 +108,11 @@ public class PlayerController : MonoBehaviour
     // A turn on the move can't turn back: swinging the stick round ends it instead.
     float quarterTurned;
     bool quarterOnTheMove;
-    // Turning about on the move (Player Movement's pivot), and to which side; and whether the turn about
-    // is still winding down (let go, or cut short) faster than steering turns, which eases off at the
-    // pivot's rate so she doesn't spin on.
-    bool pivoting, pivotWindingDown;
+    // Turning about on the move (Player Movement's pivot), and to which side.
+    bool pivoting;
+    // A turn about cut short (let go, or the clip changed) still turning faster than steering does:
+    // it eases off at the pivot's rate, so she doesn't spin on.
+    bool pivotWindingDown;
     int pivotSide = 1;
     const float QuarterTurnSpent = 80f;
     // Farther off than this she faces nearly away, where the stick's side is noise.
@@ -274,8 +263,7 @@ public class PlayerController : MonoBehaviour
         if (running && IsCrouching && move != Vector3.zero) TryStandUp();
         wantsToMove = move != Vector3.zero;
 
-        // A tap jogs until the tap window has passed, so the next tap sprints without a walk between.
-        Steer(move, stickPace, running || canAct && Time.time - lastRunTap <= Movement.sprintTapWindow, view);
+        Steer(move, stickPace, running, view);
 
         if (canAct)
         {
@@ -396,12 +384,13 @@ public class PlayerController : MonoBehaviour
         if (IsDead)
         {
             turnRate = 0f;
-            turningOnSpot = false;
+            turningOnSpot = pivoting = pivotWindingDown = false;
             return;
         }
         bool quarterTurning = ClipTag(QuarterTag);
         bool clipTurning = quarterTurning || ClipTag(TurnTag);
         turnDone = false;
+        PlayerMovementSettings ms = Movement;
         if (IsAiming)
         {
             stopWait = 0f;
@@ -410,11 +399,15 @@ public class PlayerController : MonoBehaviour
             if (wantsToMove)
             {
                 turningOnSpot = false;
-                targetRate = Mathf.Clamp(error * turnResponse * 1.5f, -maxMovingTurnRate, maxMovingTurnRate);
+                targetRate = Mathf.Clamp(error * ms.aimTurnResponse, -ms.aimMaxTurnRate, ms.aimMaxTurnRate);
+                // She keeps facing the camera and steps the stick's way round it, backing off when it
+                // points behind her. The stick sets the pace up to a walk; holding run jogs.
                 Vector3 local = Quaternion.Inverse(transform.rotation) * move.normalized;
-                gait = !IsCrouching && running ? 2 : 1;
-                moveX = local.x * gait;
-                moveY = local.z * gait;
+                float pace = !IsCrouching && running ? JogGait : Mathf.Min(stickPace, WalkGait);
+                gait = pace > 1.5f ? 2 : 1;
+                creep = pace < WalkGait ? Mathf.Lerp(ms.creepPlayback, 1f, pace) : 1f;
+                moveX = local.x * Mathf.Max(WalkGait, pace);
+                moveY = local.z * Mathf.Max(WalkGait, pace);
                 // Setting off ends a quarter turn; she strafes round the rest.
                 turnDone = quarterTurning;
                 if (animator != null) animator.ResetTrigger(QuickTurnParameter);
@@ -425,16 +418,15 @@ public class PlayerController : MonoBehaviour
                 // otherwise the turn loop until she faces it.
                 turnSide = error < 0f ? -1 : 1;
                 bool turnBack = false;
-                if (quarterTurning) turnDone = QuarterTurnOver(error, aimTurnAngle / 3f, quickTurnAngle, out turnBack);
-                if ((turnBack || !clipTurning && Mathf.Abs(error) > quickTurnAngle) && animator != null && rootMotion != null) QuarterTurn(turnSide, false);
+                if (quarterTurning) turnDone = QuarterTurnOver(error, ms.aimTurnAngle / 3f, ms.aimQuarterTurnAngle, out turnBack);
+                if ((turnBack || !clipTurning && Mathf.Abs(error) > ms.aimQuarterTurnAngle) && animator != null && rootMotion != null) QuarterTurn(turnSide, false);
                 else if (animator != null) animator.ResetTrigger(QuickTurnParameter);
                 // The turn loop runs on for its blend out, so she stops it well short of facing the camera.
-                turningOnSpot = turningOnSpot ? Mathf.Abs(error) > aimTurnAngle / 3f : Mathf.Abs(error) > aimTurnAngle;
+                turningOnSpot = turningOnSpot ? Mathf.Abs(error) > ms.aimTurnAngle / 3f : Mathf.Abs(error) > ms.aimTurnAngle;
             }
         }
         else
         {
-            PlayerMovementSettings ms = Movement;
             bool free = !IsCrouching;
             bool unarmed = IsHolstered;
             bool quickTurn = false;
@@ -442,9 +434,11 @@ public class PlayerController : MonoBehaviour
             {
                 // The stick sets the pace from a creep to a jog; holding the run button jogs at least,
                 // tapping it sprints (badly hurt, only jogs). Crouched she creeps or walks.
+                // A tap jogs until the tap window has passed, so the next tap sprints without a walk between.
+                bool jogging = running || Time.time - lastRunTap <= ms.sprintTapWindow;
                 float pace = IsCrouching ? Mathf.Min(stickPace, WalkGait)
                     : sprinting ? (Status == "DANGER" ? JogGait : RunGait)
-                    : running ? Mathf.Max(stickPace, JogGait) : stickPace;
+                    : jogging ? Mathf.Max(stickPace, JogGait) : stickPace;
                 gait = pace > 2.5f ? 3 : pace > 1.5f ? 2 : 1;
                 creep = pace < WalkGait ? Mathf.Lerp(ms.creepPlayback, 1f, pace) : 1f;
                 PlayerMovementSettings.Gait g = ms.For(gait);
@@ -492,7 +486,7 @@ public class PlayerController : MonoBehaviour
                     turningOnSpot = false;
                 }
                 // Standing and facing well away, she steps round on the spot first and sets off once nearly there.
-                else if (!unarmed && !onTheMove && Mathf.Abs(error) > (free ? ms.turnOnSpotAngle : turnOnSpotAngle)) turningOnSpot = true;
+                else if (!unarmed && !onTheMove && Mathf.Abs(error) > (free ? ms.turnOnSpotAngle : ms.crouchTurnOnSpotAngle)) turningOnSpot = true;
                 else if (Mathf.Abs(error) < 30f) turningOnSpot = false;
                 if (pivoting)
                 {
@@ -550,8 +544,8 @@ public class PlayerController : MonoBehaviour
         if (clipTurning && !(turnDone && wantsToMove) || turningOnSpot || !wantsToMove) targetRate = 0f;
         if (IsAiming) pivoting = false;
         if (pivoting) pivotWindingDown = true;
-        else if (Mathf.Abs(turnRate) <= (wantsToMove ? Movement.For(gait).maxTurnRate : 1f)) pivotWindingDown = false;
-        float ease = pivotWindingDown ? Movement.pivotAcceleration : IsAiming ? turnAcceleration : Movement.For(gait).turnAcceleration;
+        else if (Mathf.Abs(turnRate) <= (wantsToMove ? ms.For(gait).maxTurnRate : 1f)) pivotWindingDown = false;
+        float ease = pivotWindingDown ? ms.pivotAcceleration : IsAiming ? ms.aimTurnAcceleration : ms.For(gait).turnAcceleration;
         turnRate = pivotEnded ? targetRate : Mathf.MoveTowards(turnRate, targetRate, ease * Time.deltaTime);
         transform.Rotate(0f, turnRate * Time.deltaTime, 0f);
     }
@@ -789,7 +783,7 @@ public class PlayerController : MonoBehaviour
         float playback = gaitNow <= WalkGait ? ms.walk.playbackSpeed : gaitNow <= JogGait ? Mathf.Lerp(ms.walk.playbackSpeed, ms.jog.playbackSpeed, gaitNow - WalkGait)
             : Mathf.Lerp(ms.jog.playbackSpeed, ms.sprint.playbackSpeed, Mathf.Clamp01(gaitNow - JogGait));
         easedCreep = Mathf.MoveTowards(easedCreep, creep, 2f * dt);
-        animator.SetFloat(MoveSpeedParameter, free ? playback * easedCreep : 1f);
+        animator.SetFloat(MoveSpeedParameter, (free ? playback : 1f) * easedCreep);
         animator.SetBool(UseStartParameter, ms.For(gait).startClip);
         animator.SetBool(UseStopParameter, ms.For(gait).stopClip);
         // Steering as fast as the pack's circle loops turn leans her fully into the curve.
