@@ -66,9 +66,10 @@ public class PlayerMovementSettings : ScriptableObject
     [Range(0.2f, 1.2f)] public float sprintTapWindow = 0.5f;
 
     [Header("Gaits")]
-    public Gait walk = new() { blendTime = 0.15f, maxTurnRate = 260f, turnResponse = 5f, turnAcceleration = 700f };
-    public Gait jog = new() { blendTime = 0.2f, maxTurnRate = 240f, turnResponse = 5f, turnAcceleration = 700f };
-    public Gait sprint = new() { blendTime = 0.25f, maxTurnRate = 200f, turnResponse = 4f, turnAcceleration = 600f, turnClipAngle = 180f };
+    // The start skips set off about two frames before each Mobility start clip first moves her.
+    public Gait walk = new() { blendTime = 0.15f, maxTurnRate = 260f, turnResponse = 5f, turnAcceleration = 700f, startSkip = 0.23f };
+    public Gait jog = new() { blendTime = 0.2f, maxTurnRate = 240f, turnResponse = 5f, turnAcceleration = 700f, startSkip = 0.43f };
+    public Gait sprint = new() { blendTime = 0.25f, maxTurnRate = 200f, turnResponse = 4f, turnAcceleration = 600f, turnClipAngle = 180f, startSkip = 0.32f };
 
     [Header("Standing")]
     [Tooltip("With the pistol down and standing, facing farther off than this she turns on the spot before setting off.")]

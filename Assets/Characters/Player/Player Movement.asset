@@ -70,7 +70,7 @@ MonoBehaviour:
     turnClipAngle: 80
     startClip: 1
     stopClip: 1
-    startSkip: 0
+    startSkip: 0.23
     startBlend: 0.15
     stopOnFoot: 1
     stopBlend: 0.2
@@ -85,7 +85,7 @@ MonoBehaviour:
     turnClipAngle: 80
     startClip: 1
     stopClip: 1
-    startSkip: 0
+    startSkip: 0.43
     startBlend: 0.15
     stopOnFoot: 1
     stopBlend: 0.2
@@ -100,7 +100,7 @@ MonoBehaviour:
     turnClipAngle: 180
     startClip: 1
     stopClip: 1
-    startSkip: 0
+    startSkip: 0.32
     startBlend: 0.15
     stopOnFoot: 1
     stopBlend: 0.2

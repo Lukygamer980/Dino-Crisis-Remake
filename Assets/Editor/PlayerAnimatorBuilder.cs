@@ -474,11 +474,8 @@ public static class PlayerAnimatorBuilder
             }
             if (s.starts != null)
             {
-                // Setting off from a stand into the gait she asks for, before the plain blend into moving.
                 for (int g = 0; g < s.starts.Length; g++)
                 {
-                    PlayerMovementSettings.Gait gait = ms.For(g + 1);
-                    Interruptible(Go(s.idle, s.starts[g], gait.startBlend, On("Moving"), Is("Gait", g + 1), On("UseStart"))).offset = gait.startSkip;
                     Go(s.starts[g], s.idle, 0.25f, Off("Moving"));
                     // Into the gait at the point of its cycle the start clip ends on, so the steps carry on.
                     AnimationClip startClip = (AnimationClip)s.starts[g].motion;
@@ -487,11 +484,10 @@ public static class PlayerAnimatorBuilder
             }
             if (s.start != null)
             {
-                Interruptible(Go(s.idle, s.start, 0.15f, On("Moving"), Above("MoveY", 0.3f), Above("MoveX", -0.4f), Below("MoveX", 0.4f)));
                 Go(s.start, s.idle, 0.25f, Off("Moving"));
                 ExitTo(s.start, s.move, 0.85f, 0.2f);
             }
-            Interruptible(Go(s.idle, s.move, ms.idleToMoveBlend, On("Moving")));
+            SetOff(s.idle, s, ms, ms.idleToMoveBlend);
             if (s.fidget != null)
             {
                 // Standing still a while, she looks around; setting off or turning cuts the look short.
@@ -501,7 +497,7 @@ public static class PlayerAnimatorBuilder
                     AnimatorStateTransition into = Go(s.idle, look, 0.4f, Above("IdleTime", 8f));
                     if (s.fidgetAlt != null) into.AddCondition(AnimatorConditionMode.Equals, variant, "IdleVariant");
                     into.interruptionSource = TransitionInterruptionSource.Source;
-                    Go(look, s.move, 0.3f, On("Moving"));
+                    SetOff(look, s, ms, 0.3f);
                     Go(look, s.idle, 0.3f, On("TurnInPlace"));
                     Go(look, s.idle, 0.3f, On("QuickTurn"));
                     ExitTo(look, s.idle, 0.95f);
@@ -625,6 +621,21 @@ public static class PlayerAnimatorBuilder
     }
 
     // ---- Stances ----
+
+    // Setting off from a stand or a look around: with the pack's start clip into the gait she asks for
+    // (skipping its first weight shift by the gait's start skip), else the aimed first step, else the
+    // plain blend into moving. Each can be cut short by letting go.
+    static void SetOff(AnimatorState from, StanceStates s, PlayerMovementSettings ms, float blend)
+    {
+        if (s.starts != null)
+            for (int g = 0; g < s.starts.Length; g++)
+            {
+                PlayerMovementSettings.Gait gait = ms.For(g + 1);
+                Interruptible(Go(from, s.starts[g], gait.startBlend, On("Moving"), Is("Gait", g + 1), On("UseStart"))).offset = gait.startSkip;
+            }
+        if (s.start != null) Interruptible(Go(from, s.start, 0.15f, On("Moving"), Above("MoveY", 0.3f), Above("MoveX", -0.4f), Below("MoveX", 0.4f)));
+        Interruptible(Go(from, s.move, blend, On("Moving")));
+    }
 
     // Into a stop clip once she lets go in this gait: with the gait's stopOnFoot, at the point of the
     // gait's cycle the stop clip starts from, so its last steps follow on; otherwise at once.
@@ -1457,7 +1468,6 @@ public static class PlayerAnimatorBuilder
     static AnimatorStateTransition Interruptible(AnimatorStateTransition transition)
     {
         transition.interruptionSource = TransitionInterruptionSource.Destination;
-        transition.orderedInterruption = true;
         return transition;
     }
 

@@ -457,7 +457,7 @@ public class PlayerController : MonoBehaviour
                     float[] cycles = Profile.gaitCycles;
                     int index = IsCrouching ? cycles.Length - 1 : gait - 1;
                     float cycle = index >= 0 && index < cycles.Length ? cycles[index] : 1.2f;
-                    stopWait = cycle / Mathf.Max(0.1f, ms.For(gait).playbackSpeed * creep) + 0.05f;
+                    stopWait = cycle / Mathf.Max(0.1f, ms.For(gait).playbackSpeed * easedCreep) + 0.05f;
                     // Above the stand fade's threshold, at the pace she walked.
                     heldMoveY = Mathf.Max(lastMoveY, 0.35f);
                 }
