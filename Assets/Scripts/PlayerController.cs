@@ -120,7 +120,14 @@ public class PlayerController : MonoBehaviour
     // A turn on the move can't turn back: swinging the stick round ends it instead.
     float quarterTurned;
     bool quarterOnTheMove;
+    // Turning about on the move (Player Movement's pivot), and to which side; and whether the turn about
+    // is still winding down (let go, or cut short) faster than steering turns, which eases off at the
+    // pivot's rate so she doesn't spin on.
+    bool pivoting, pivotWindingDown;
+    int pivotSide = 1;
     const float QuarterTurnSpent = 80f;
+    // Farther off than this she faces nearly away, where the stick's side is noise.
+    const float FacingAway = 150f;
     // How fast PlayerController steers her on the move, in degrees per second.
     float turnRate;
     // Her pace along the ground from the last animated step; a jump carries it through the air and
@@ -383,6 +390,8 @@ public class PlayerController : MonoBehaviour
     {
         float yaw = transform.eulerAngles.y;
         float targetRate = 0f;
+        // A turn about that has eased off by reaching the stick hands over to steering at once.
+        bool pivotEnded = false;
         moveX = moveY = 0f;
         if (IsDead)
         {
@@ -442,6 +451,22 @@ public class PlayerController : MonoBehaviour
                 float error = Mathf.DeltaAngle(yaw, Quaternion.LookRotation(move).eulerAngles.y);
                 turnSide = error < 0f ? -1 : 1;
                 bool onTheMove = ClipTag(MoveTag);
+                // Jogging or sprinting, the stick swung far round turns her about quickly. The stick can
+                // redirect it any time; only facing nearly away does she keep the side she picked, so
+                // stick noise around 180 degrees can't flip it.
+                float movingPace = animator != null ? animator.GetFloat(MoveYParameter) : moveY;
+                if (!pivoting && onTheMove && movingPace >= ms.pivotMinPace && Mathf.Abs(error) > ms.pivotAngle)
+                {
+                    pivoting = true;
+                    pivotSide = Mathf.Abs(turnRate) > 1f ? (turnRate < 0f ? -1 : 1) : turnSide;
+                }
+                if (pivoting && !onTheMove) pivoting = false;
+                else if (pivoting && Mathf.Abs(error) < ms.pivotEndAngle)
+                {
+                    pivoting = false;
+                    pivotEnded = true;
+                }
+                else if (pivoting && Mathf.Abs(error) < FacingAway) pivotSide = turnSide;
                 // A quarter turn under way ends once she faces the stick, and turns back the other way at
                 // once if the stick swings far round.
                 if (quarterTurning)
@@ -457,7 +482,7 @@ public class PlayerController : MonoBehaviour
                 // Holstered and standing, a turn of more than quarterTurnMax (Player Movement) is stepped round on the
                 // spot, since two quarter turns would take seconds.
                 else if (unarmed && !onTheMove && Mathf.Abs(error) > ms.quarterTurnMax) turningOnSpot = true;
-                else if (unarmed && !turningOnSpot && !clipTurning && animator != null && rootMotion != null
+                else if (unarmed && !turningOnSpot && !clipTurning && !pivoting && animator != null && rootMotion != null
                     && Mathf.Abs(error) > (onTheMove ? g.turnClipAngle : ms.quarterTurnAngle) && (!onTheMove || (gait < 3 && !IsCrouching && g.turnClipAngle < 180f)))
                 {
                     // Holstered, the Mobility pack turns her: a quarter turn from a stand (crouched too),
@@ -469,10 +494,20 @@ public class PlayerController : MonoBehaviour
                 // Standing and facing well away, she steps round on the spot first and sets off once nearly there.
                 else if (!unarmed && !onTheMove && Mathf.Abs(error) > (free ? ms.turnOnSpotAngle : turnOnSpotAngle)) turningOnSpot = true;
                 else if (Mathf.Abs(error) < 30f) turningOnSpot = false;
-                if (!turningOnSpot)
+                if (pivoting)
                 {
+                    // As fast as it can still ease off in the angle left, so she stops turning where the
+                    // stick points instead of spinning past it.
+                    float left = pivotSide * error >= 0f ? Mathf.Abs(error) : 360f - Mathf.Abs(error);
+                    targetRate = pivotSide * Mathf.Min(ms.pivotTurnRate, Mathf.Sqrt(2f * ms.pivotAcceleration * left));
+                    moveY = Mathf.Max(WalkGait, pace * ms.pivotPaceShare);
+                }
+                else if (!turningOnSpot)
+                {
+                    // Facing nearly away, she keeps turning the way she already is.
+                    float steer = Mathf.Abs(error) > FacingAway && turnRate * error < 0f ? error - Mathf.Sign(error) * 360f : error;
                     // While the pack's turn on the move takes over, she doesn't also steer by hand.
-                    if (!quickTurn) targetRate = Mathf.Clamp(error * g.turnResponse, -g.maxTurnRate, g.maxTurnRate);
+                    if (!quickTurn) targetRate = Mathf.Clamp(steer * g.turnResponse, -g.maxTurnRate, g.maxTurnRate);
                     // A sharp turn slows her, so she curves round rather than running a wide arc.
                     float sharpness = Mathf.Max(Mathf.Clamp01(1f - (Mathf.Abs(error) - 45f) / 120f), g.sharpTurnSpeedShare);
                     moveY = Mathf.Max(WalkGait, pace * sharpness);
@@ -481,6 +516,7 @@ public class PlayerController : MonoBehaviour
             else
             {
                 turningOnSpot = false;
+                pivoting = false;
                 // Letting go ends a quarter turn where she is.
                 turnDone = quarterTurning;
                 // Letting go: a stop clip that starts on a given foot waits for it, so she walks on at
@@ -512,8 +548,11 @@ public class PlayerController : MonoBehaviour
         // The clip turns her on the spot; on the move, turns build up and ease off rather than snapping,
         // also as a turn clip takes over. Steering picks up as soon as a quarter turn is over.
         if (clipTurning && !(turnDone && wantsToMove) || turningOnSpot || !wantsToMove) targetRate = 0f;
-        float ease = !IsAiming ? Movement.For(gait).turnAcceleration : turnAcceleration;
-        turnRate = Mathf.MoveTowards(turnRate, targetRate, ease * Time.deltaTime);
+        if (IsAiming) pivoting = false;
+        if (pivoting) pivotWindingDown = true;
+        else if (Mathf.Abs(turnRate) <= (wantsToMove ? Movement.For(gait).maxTurnRate : 1f)) pivotWindingDown = false;
+        float ease = pivotWindingDown ? Movement.pivotAcceleration : IsAiming ? turnAcceleration : Movement.For(gait).turnAcceleration;
+        turnRate = pivotEnded ? targetRate : Mathf.MoveTowards(turnRate, targetRate, ease * Time.deltaTime);
         transform.Rotate(0f, turnRate * Time.deltaTime, 0f);
     }
 
@@ -757,7 +796,8 @@ public class PlayerController : MonoBehaviour
         float leanRate = stance == AimStance ? Mathf.Lerp(p.aimWalkLeanRate, p.aimJogLeanRate, Mathf.Clamp01(moveY - WalkGait))
             : IsHolstered ? (moveY > JogGait ? p.unarmedRunLeanRate : moveY > WalkGait ? p.unarmedJogLeanRate : p.unarmedWalkLeanRate)
             : p.runLeanRate;
-        float leanScale = free ? ms.For(gait).lean : 1f;
+        // Turning about is too quick to lean into.
+        float leanScale = pivoting ? 0f : free ? ms.For(gait).lean : 1f;
         animator.SetFloat(TurnParameter, Mathf.Clamp(turnRate / Mathf.Max(1f, leanRate) * leanScale, -1.5f, 1.5f), 0.2f, dt);
         animator.SetInteger(StanceParameter, stance);
         animator.SetBool(IsAimingParameter, IsAiming);

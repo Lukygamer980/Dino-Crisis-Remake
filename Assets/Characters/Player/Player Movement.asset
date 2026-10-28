@@ -104,6 +104,12 @@ MonoBehaviour:
     startBlend: 0.15
     stopOnFoot: 1
     stopBlend: 0.2
+  pivotAngle: 135
+  pivotMinPace: 1.5
+  pivotTurnRate: 720
+  pivotAcceleration: 6000
+  pivotPaceShare: 0.5
+  pivotEndAngle: 5
   turnOnSpotAngle: 120
   quarterTurnAngle: 60
   quarterTurnMax: 120

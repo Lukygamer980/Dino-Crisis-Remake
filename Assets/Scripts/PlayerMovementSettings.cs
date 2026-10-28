@@ -71,6 +71,20 @@ public class PlayerMovementSettings : ScriptableObject
     public Gait jog = new() { blendTime = 0.2f, maxTurnRate = 240f, turnResponse = 5f, turnAcceleration = 700f, startSkip = 0.43f };
     public Gait sprint = new() { blendTime = 0.25f, maxTurnRate = 200f, turnResponse = 4f, turnAcceleration = 600f, turnClipAngle = 180f, startSkip = 0.32f };
 
+    [Header("Turning about on the move")]
+    [Tooltip("Jogging or sprinting, swinging the stick farther round than this turns her about quickly. The packs have no turn-about clip, so the gait plays on while she turns.")]
+    [Range(90f, 180f)] public float pivotAngle = 135f;
+    [Tooltip("Only this fast and faster (1 walk, 2 jog, 3 sprint); slower, steering turns her about.")]
+    [Range(1f, 3f)] public float pivotMinPace = 1.5f;
+    [Tooltip("How fast she turns about, in degrees per second.")]
+    [Range(180f, 1440f)] public float pivotTurnRate = 720f;
+    [Tooltip("How quickly the turn about builds up and eases off, in degrees per second squared.")]
+    [Range(1000f, 20000f)] public float pivotAcceleration = 6000f;
+    [Tooltip("While she turns about she slows to this share of her pace, blending down and back up.")]
+    [Range(0.2f, 1f)] public float pivotPaceShare = 0.5f;
+    [Tooltip("Within this many degrees of the stick, the turn about, eased off by then, hands over to steering.")]
+    [Range(1f, 45f)] public float pivotEndAngle = 5f;
+
     [Header("Standing")]
     [Tooltip("With the pistol down and standing, facing farther off than this she turns on the spot before setting off.")]
     [Range(30f, 180f)] public float turnOnSpotAngle = 120f;
