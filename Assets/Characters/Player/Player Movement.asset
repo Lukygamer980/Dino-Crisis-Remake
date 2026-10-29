@@ -55,6 +55,9 @@ MonoBehaviour:
   softSetOffBelow: 0.4
   softStartSkipShare: 0.3
   softStartBlend: 0.3
+  relaxHands: 1
+  relaxedThumbStretch: -1.56
+  relaxedThumbSpread: 1
   holdThreshold: 0.22
   sprintTaps: 2
   sprintTapWindow: 0.5

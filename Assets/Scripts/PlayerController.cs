@@ -151,7 +151,7 @@ public class PlayerController : MonoBehaviour
     int gait = 1;
     float aimWeight;
     float lookWeight;
-    int aimLayer = -1, lookLayer = -1;
+    int aimLayer = -1, lookLayer = -1, handsLayer = -1;
 
     float reloadTimer, reloadDuration;
     bool roundsIn;
@@ -240,6 +240,7 @@ public class PlayerController : MonoBehaviour
             }
             aimLayer = animator.GetLayerIndex("Aim Offset");
             lookLayer = animator.GetLayerIndex("Look Offset");
+            handsLayer = animator.GetLayerIndex("Relaxed Hands");
         }
         SetCrouch(false);
         if (movement == null) Debug.LogWarning("PlayerController has no Player Movement asset; it moves on the defaults. Rebuild the character prefabs.", this);
@@ -1037,6 +1038,8 @@ public class PlayerController : MonoBehaviour
         animator.SetFloat(AimBlendParameter, aimWeight);
         if (aimLayer >= 0) animator.SetLayerWeight(aimLayer, aimWeight);
         if (lookLayer >= 0) animator.SetLayerWeight(lookLayer, lookWeight * 0.7f);
+        // Holstered, the pack's hands with the thumbs relaxed (Player Movement's relax hands).
+        if (handsLayer >= 0) animator.SetLayerWeight(handsLayer, ms.relaxHands ? unarmedBlend : 0f);
 
         // Standing still a while, she looks around (holstered: waits or talks to herself, picked afresh
         // each time); the wait starts over in a new stance.

@@ -607,6 +607,11 @@ public static class PlayerAnimatorBuilder
             windUps[i] = jumps[i, 0].length * 0.95f;
         }
 
+        // Holstered, the Mobility pack's hands hold the thumbs up off the index finger (the same in every
+        // clip), which shows at a jog: a fingers-only layer under the upper body (so drawing, holstering
+        // and the grip still pose the fingers) holds the pack's hand with the thumbs at Player Movement's
+        // relaxed thumb stretch and spread. PlayerController weighs it in holstered.
+        AddLayer("Relaxed Hands", RelaxedHands(M("Jog_F_Loop"), ms), additive: false, mask: FingersMask());
         BuildUpperBody(upper);
 
         // Aim offsets: single poses, turned into differences from looking straight ahead.
@@ -956,6 +961,49 @@ public static class PlayerAnimatorBuilder
             avatarMask = mask != null ? mask : UpperBodyMask(),
         });
         return machine;
+    }
+
+    // The fingers alone.
+    static AvatarMask FingersMask()
+    {
+        string path = Generated + "/Fingers.mask";
+        AvatarMask mask = AssetDatabase.LoadAssetAtPath<AvatarMask>(path);
+        if (mask == null)
+        {
+            mask = new AvatarMask();
+            AssetDatabase.CreateAsset(mask, path);
+        }
+        for (AvatarMaskBodyPart part = 0; part < AvatarMaskBodyPart.LastBodyPart; part++)
+            mask.SetHumanoidBodyPartActive(part, part is AvatarMaskBodyPart.LeftFingers or AvatarMaskBodyPart.RightFingers);
+        EditorUtility.SetDirty(mask);
+        return mask;
+    }
+
+    // The hand pose of `source` (its finger muscles at the start, held), with both thumbs' first joint
+    // at Player Movement's relaxed thumb stretch and spread.
+    static AnimationClip RelaxedHands(AnimationClip source, PlayerMovementSettings ms)
+    {
+        string path = Generated + "/Relaxed Hands.anim";
+        AnimationClip clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(path);
+        if (clip == null)
+        {
+            clip = new AnimationClip();
+            AssetDatabase.CreateAsset(clip, path);
+        }
+        clip.ClearCurves();
+        foreach (EditorCurveBinding binding in AnimationUtility.GetCurveBindings(source))
+        {
+            if (!binding.propertyName.StartsWith("LeftHand.") && !binding.propertyName.StartsWith("RightHand.")) continue;
+            string name = binding.propertyName;
+            float value = name.EndsWith("Thumb.1 Stretched") ? ms.relaxedThumbStretch : name.EndsWith("Thumb.Spread") ? ms.relaxedThumbSpread
+                : AnimationUtility.GetEditorCurve(source, binding).Evaluate(0f);
+            AnimationUtility.SetEditorCurve(clip, binding, AnimationCurve.Constant(0f, 1f / 30f, value));
+        }
+        AnimationClipSettings settings = AnimationUtility.GetAnimationClipSettings(clip);
+        settings.loopTime = true;
+        AnimationUtility.SetAnimationClipSettings(clip, settings);
+        EditorUtility.SetDirty(clip);
+        return clip;
     }
 
     // Spine, head, arms and hands; the legs and the body's travel stay with the base layer.

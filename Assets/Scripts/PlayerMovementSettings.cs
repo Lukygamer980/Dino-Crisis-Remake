@@ -76,6 +76,14 @@ public class PlayerMovementSettings : ScriptableObject
     [Tooltip("A gentle start blends into the start clip over this many seconds.")]
     [Range(0f, 0.6f)] public float softStartBlend = 0.3f;
 
+    [Header("Hands")]
+    [Tooltip("Holstered, she holds the Mobility pack's hands with the thumbs in along the index finger: the pack holds them up off it, which shows at a jog.")]
+    public bool relaxHands = true;
+    [Tooltip("The relaxed thumbs' first joint (the Thumb 1 Stretched muscle; the pack's is -1.56, higher lifts the thumb tip). Rebuild the Animator after changing it.")]
+    [Range(-2f, 1f)] public float relaxedThumbStretch = -1.56f;
+    [Tooltip("How far the relaxed thumbs come in to the index finger (the Thumb Spread muscle; the pack's is 0.28, its tip 3 cm above the index knuckle at a jog; 1 brings it to about 1.5 cm). Rebuild the Animator after changing it.")]
+    [Range(-1f, 1.5f)] public float relaxedThumbSpread = 1f;
+
     [Header("Run button")]
     [Tooltip("A press of the run button held longer than this is a hold: she jogs until it is let go, then walks. Shorter, it is a tap.")]
     [Range(0.1f, 0.5f)] public float holdThreshold = 0.22f;
