@@ -114,6 +114,8 @@ public class PlayerMovementSettings : ScriptableObject
     [Range(5f, 180f)] public float aimFootworkRate = 30f;
     [Tooltip("Shooting from the hip on the move, her legs carry on with the stick and only her upper body turns to the shot, for this many seconds after each shot (standing, she turns to face it).")]
     [Range(0.1f, 2f)] public float hipFireAimHold = 0.6f;
+    [Tooltip("...unless the shot is farther round than this from where she runs, which her upper body can't twist to: then she turns to face it.")]
+    [Range(30f, 180f)] public float hipFireMaxTwist = 100f;
     [Tooltip("Aiming and standing without follow camera, the camera this far off her facing turns her on the spot, until she is within a third of it. The aim offset points the pistol across what is left.")]
     [Range(5f, 90f)] public float aimTurnAngle = 24f;
     [Tooltip("Aiming and standing without follow camera, the camera this far off her facing turns her a quarter turn at once.")]

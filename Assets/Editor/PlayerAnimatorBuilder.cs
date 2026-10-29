@@ -865,6 +865,14 @@ public static class PlayerAnimatorBuilder
             into.AddCondition(AnimatorConditionMode.IfNot, 0f, "IsDead");
             ExitTo(state, empty, exit);
         }
+        // On the move, once the pistol is in its holster the arms go back to the stride she is in at
+        // once, instead of hanging at her sides for the rest of the clip.
+        float stowed = (Mathf.Max(PlayerController.HolsterStowTime, PlayerController.CrouchHolsterStowTime) + 0.05f) / clips.holster.length;
+        AnimatorStateTransition backToStride = ExitTo(holsterState, empty, stowed, 0.25f, On("Moving"));
+        AnimatorStateTransition[] holsterOut = holsterState.transitions;
+        Array.Copy(holsterOut, 0, holsterOut, 1, holsterOut.Length - 1);
+        holsterOut[0] = backToStride;
+        holsterState.transitions = holsterOut;
         foreach ((AnimatorState state, int weapon) in new[] { (toSecond, 2), (toPistol, 1) })
         {
             AnimatorStateTransition into = upper.AddAnyStateTransition(state);

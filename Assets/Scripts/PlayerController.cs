@@ -24,7 +24,7 @@ public class PlayerController : MonoBehaviour
     const float WalkGait = 1f, JogGait = 2f, RunGait = 3f;
     // When the pistol reaches her hand while drawing and the holster while holstering, standing and
     // crouched (the frames in the MocapOnline list, at 30 fps).
-    const float DrawGrabTime = 0.23f, CrouchDrawGrabTime = 0.43f, HolsterStowTime = 0.63f, CrouchHolsterStowTime = 0.53f;
+    public const float DrawGrabTime = 0.23f, CrouchDrawGrabTime = 0.43f, HolsterStowTime = 0.63f, CrouchHolsterStowTime = 0.53f;
 
     [Header("Movement")]
     [Tooltip("The gaits' tuning: walk, jog and sprint standing up, and the walk crouched. Edit the asset, also while playing.")]
@@ -1042,7 +1042,7 @@ public class PlayerController : MonoBehaviour
         animator.SetFloat(AimPitchParameter, Mathf.Clamp(-pitch / 90f, -1f, 1f));
         animator.SetFloat(AimYawParameter, IsAiming || hipAiming ? Mathf.Clamp(yawOff / 90f, -1f, 1f) : 0f);
         aimWeight = Mathf.MoveTowards(aimWeight, IsAiming || hipAiming ? 1f : 0f, 5f * Time.deltaTime);
-        lookWeight = Mathf.MoveTowards(lookWeight, !IsAiming && !IsDead ? 1f : 0f, 3f * Time.deltaTime);
+        lookWeight = Mathf.MoveTowards(lookWeight, !IsAiming && !hipAiming && !IsDead ? 1f : 0f, 3f * Time.deltaTime);
         animator.SetFloat(AimBlendParameter, aimWeight);
         if (aimLayer >= 0) animator.SetLayerWeight(aimLayer, aimWeight);
         if (lookLayer >= 0) animator.SetLayerWeight(lookLayer, lookWeight * 0.7f);
@@ -1140,12 +1140,19 @@ public class PlayerController : MonoBehaviour
         Vector3 facing = new(direction.x, 0f, direction.z);
         if (!IsAiming && facing.sqrMagnitude > 0.01f)
         {
-            if (wantsToMove)
+            float shotYaw = Quaternion.LookRotation(facing).eulerAngles.y;
+            // A shot farther round than her upper body can twist turns her whole body after all.
+            if (wantsToMove && Mathf.Abs(Mathf.DeltaAngle(transform.eulerAngles.y, shotYaw)) <= Movement.hipFireMaxTwist)
             {
-                hipShotYaw = Quaternion.LookRotation(facing).eulerAngles.y;
+                hipShotYaw = shotYaw;
                 hipAimTime = Movement.hipFireAimHold;
             }
-            else transform.rotation = Quaternion.LookRotation(facing);
+            else
+            {
+                transform.rotation = Quaternion.LookRotation(facing);
+                hipShotYaw = shotYaw;
+                hipAimTime = 0f;
+            }
         }
 
         if (Physics.Raycast(origin, direction, out RaycastHit hit, shotRange, ~0, QueryTriggerInteraction.Ignore))

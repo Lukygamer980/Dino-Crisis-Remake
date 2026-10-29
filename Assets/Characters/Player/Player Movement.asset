@@ -113,6 +113,7 @@ MonoBehaviour:
   aimTurnAcceleration: 3000
   aimFootworkRate: 30
   hipFireAimHold: 0.6
+  hipFireMaxTwist: 100
   aimTurnAngle: 24
   aimQuarterTurnAngle: 80
   turnStartAngle: 45
