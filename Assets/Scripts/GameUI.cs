@@ -125,6 +125,17 @@ public class GameUI : MonoBehaviour
         string handgun = player.IsHolstered ? "HOLSTERED" : player.IsReloading ? "RELOADING" : player.Loaded.ToString();
         GUI.Label(new Rect(24f, height - 42f, 400f, 30f), "HANDGUN  " + handgun + " / " + player.ammo, hudStyle);
 
+        // Stamina, while it isn't full: grey, or red while she is out of breath.
+        if (player.Stamina < 0.999f)
+        {
+            var bar = new Rect(24f, height - 92f, 160f, 8f);
+            GUI.color = new Color(0f, 0f, 0f, 0.5f);
+            GUI.DrawTexture(bar, Texture2D.whiteTexture);
+            GUI.color = player.Exhausted ? new Color(1f, 0.3f, 0.25f) : new Color(0.85f, 0.85f, 0.85f);
+            GUI.DrawTexture(new Rect(bar.x, bar.y, bar.width * player.Stamina, bar.height), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+        }
+
         if (player.IsAiming) DrawCrosshair(width / 2f, height / 2f);
         if (prompt != null) GUI.Label(new Rect(0f, height - 130f, width, 30f), prompt, centeredStyle);
         if (message != null && Time.time < messageHideTime) GUI.Label(new Rect(0f, height * 0.72f, width, 60f), message, centeredStyle);

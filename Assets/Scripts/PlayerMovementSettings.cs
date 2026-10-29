@@ -98,6 +98,22 @@ public class PlayerMovementSettings : ScriptableObject
     [Tooltip("With the pistol, the sprint (the pistol pack's run, slower than the holstered one) plays this much faster on top of the sprint's playback speed; its root motion follows, so the feet stay planted.")]
     [Range(1f, 1.4f)] public float armedSprintPlayback = 1.1f;
 
+    [Header("Stamina")]
+    [Tooltip("Sprinting spends stamina and running out leaves her out of breath; off, she sprints as long as she likes.")]
+    public bool useStamina = true;
+    [Tooltip("Seconds of sprinting from full stamina to none.")]
+    [Range(1f, 30f)] public float sprintStaminaSeconds = 6f;
+    [Tooltip("Seconds from no stamina back to full, once she has stopped sprinting for the regen delay.")]
+    [Range(1f, 30f)] public float staminaRegenSeconds = 5f;
+    [Tooltip("Seconds after she stops sprinting before stamina starts coming back.")]
+    [Range(0f, 3f)] public float staminaRegenDelay = 0.8f;
+    [Tooltip("Out of breath, she can't sprint again (tapping only jogs) until stamina is back to this share of full.")]
+    [Range(0.05f, 1f)] public float exhaustedRecoverAt = 0.4f;
+    [Tooltip("How quickly her tiredness (the Animator's Tired parameter and the breathing) rises when she runs out, and fades once she has her breath back, in seconds between none and full.")]
+    [Range(0.05f, 5f)] public float tiredFadeTime = 1.5f;
+    [Tooltip("Seconds between breaths when fully out of breath (twice that as she recovers), with the player's tired breath sounds.")]
+    [Range(0.3f, 3f)] public float tiredBreathInterval = 0.9f;
+
     [Header("Gaits")]
     // The start skips set off about two frames before each Mobility start clip first moves her.
     public Gait walk = new() { blendTime = 0.15f, maxTurnRate = 260f, turnResponse = 5f, turnAcceleration = 700f, startSkip = 0.23f };

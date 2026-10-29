@@ -61,6 +61,10 @@ public class PlayerController : MonoBehaviour
     public AudioClip[] fireSounds = new AudioClip[0];
     public AudioClip[] shellSounds = new AudioClip[0];
     public AudioClip dryFireSound, reloadSound, drawSound;
+    [Tooltip("Stamina: played once when a sprint runs her out of breath, and once when she has her breath back.")]
+    public AudioClip exhaustedSound, recoveredSound;
+    [Tooltip("Stamina: breaths played one after another while she is out of breath, a random one each time, faster the more tired she is.")]
+    public AudioClip[] tiredBreathSounds = new AudioClip[0];
     // Played at the muzzle on every shot (a child of the gun point, so it travels with the gun).
     public ParticleSystem muzzleEffect;
     // Spawned where a shot lands: on a raptor, on metal (a material named Metal, Door, Duct or
@@ -70,6 +74,14 @@ public class PlayerController : MonoBehaviour
     [HideInInspector] public bool inputLocked;
 
     public int Health { get; private set; }
+    // Sprinting spends stamina (0 to 1) and resting brings it back (Player Movement's stamina). Run out,
+    // she is exhausted and can't sprint until it is back to the recover point; Tiredness (0 to 1, eased)
+    // is how winded she is, for the Animator's Tired parameter and the breathing.
+    public float Stamina { get; private set; } = 1f;
+    public bool Exhausted { get; private set; }
+    public float Tiredness { get; private set; }
+    // For sounds and effects of your own: when a sprint runs her out of breath, and when she has it back.
+    public event System.Action StaminaExhausted, StaminaRecovered;
     public bool IsDead => Health <= 0;
     public bool IsAiming { get; private set; }
     public bool IsCrouching { get; private set; }
@@ -185,6 +197,7 @@ public class PlayerController : MonoBehaviour
     static readonly int AimBlendParameter = Animator.StringToHash("AimBlend");
     static readonly int CrouchBlendParameter = Animator.StringToHash("CrouchBlend");
     static readonly int UnarmedBlendParameter = Animator.StringToHash("UnarmedBlend");
+    static readonly int TiredParameter = Animator.StringToHash("Tired");
     static readonly int IdleTimeParameter = Animator.StringToHash("IdleTime");
     static readonly int IsAimingParameter = Animator.StringToHash("IsAiming");
     static readonly int MovingParameter = Animator.StringToHash("Moving");
@@ -328,10 +341,57 @@ public class PlayerController : MonoBehaviour
             float pace = moveY > JogGait ? 4.4f : moveY > WalkGait ? 3.3f : 1.3f;
             MoveBy(transform.TransformDirection(new Vector3(moveX, 0f, moveY)).normalized * (wantsToMove ? pace * Time.deltaTime : 0f));
         }
+        UpdateStamina();
         DriveAnimator();
     }
 
     // ---- Moving and turning ----
+
+    // Sprinting on the move spends stamina; once she stops sprinting it comes back after the regen
+    // delay. Running out exhausts her until it is back to the recover point.
+    void UpdateStamina()
+    {
+        PlayerMovementSettings ms = Movement;
+        float dt = Time.deltaTime;
+        if (!ms.useStamina)
+        {
+            Stamina = 1f;
+            if (Exhausted) StaminaRecovered?.Invoke();
+            Exhausted = false;
+        }
+        else if (wantsToMove && gait == 3 && !IsAiming)
+        {
+            Stamina = Mathf.Max(0f, Stamina - dt / ms.sprintStaminaSeconds);
+            staminaRest = ms.staminaRegenDelay;
+            if (Stamina <= 0f && !Exhausted)
+            {
+                Exhausted = true;
+                breathTimer = ms.tiredBreathInterval;
+                Play(exhaustedSound);
+                StaminaExhausted?.Invoke();
+            }
+        }
+        else
+        {
+            staminaRest -= dt;
+            if (staminaRest <= 0f) Stamina = Mathf.Min(1f, Stamina + dt / ms.staminaRegenSeconds);
+        }
+        if (Exhausted && Stamina >= ms.exhaustedRecoverAt)
+        {
+            Exhausted = false;
+            Play(recoveredSound);
+            StaminaRecovered?.Invoke();
+        }
+        // Winded while exhausted, easing off over the tired fade time once she has her breath back.
+        Tiredness = Mathf.MoveTowards(Tiredness, Exhausted ? 1f : 0f, dt / Mathf.Max(0.05f, ms.tiredFadeTime));
+        if (Tiredness > 0.1f && tiredBreathSounds.Length > 0 && (breathTimer -= dt) <= 0f)
+        {
+            Play(tiredBreathSounds);
+            breathTimer = Mathf.Lerp(ms.tiredBreathInterval * 2f, ms.tiredBreathInterval, Tiredness);
+        }
+    }
+
+    float staminaRest, breathTimer;
 
     // How sharply the stick is pushed as she sets off (Player Movement's gentle and sharp push speeds).
     // The raw stick is read inside the deadzone too, so a slow push is seen as slow from its start.
@@ -379,7 +439,8 @@ public class PlayerController : MonoBehaviour
         if (pressed && now - lastRunPress > ms.holdThreshold) runTapping = false;
         bool tapsGoing = canAct && runTapping && now - lastRunPress <= ms.sprintTapWindow;
         runJog = pressed || tapsGoing;
-        sprinting = tapsGoing && runTaps >= ms.sprintTaps;
+        // Out of breath, the taps only jog.
+        sprinting = tapsGoing && runTaps >= ms.sprintTaps && !Exhausted;
     }
 
     // The Animator's step for this frame. A turn clip's own rotation turns her; on the move
@@ -1029,6 +1090,7 @@ public class PlayerController : MonoBehaviour
         animator.SetInteger(GaitParameter, gait);
         unarmedBlend = Mathf.MoveTowards(unarmedBlend, IsHolstered ? 1f : 0f, 4f * dt);
         animator.SetFloat(UnarmedBlendParameter, unarmedBlend);
+        animator.SetFloat(TiredParameter, Tiredness);
         animator.SetFloat(CrouchBlendParameter, CrouchAmount);
 
         // Where the camera looks: up and down for the pistol or the head, and how far the body still
@@ -1083,7 +1145,7 @@ public class PlayerController : MonoBehaviour
         Vector3 v = controller.velocity;
         v.y = 0f;
         AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
-        string text = $"stance {Stance()}  gait {gait}  pace {v.magnitude:F2} m/s{(creep < 1f ? $"  creep x{creep:F2}" : "")}\n" +
+        string text = $"stance {Stance()}  gait {gait}  stamina {Stamina:F2}{(Exhausted ? " OUT" : "")}  pace {v.magnitude:F2} m/s{(creep < 1f ? $"  creep x{creep:F2}" : "")}\n" +
             $"MoveY {animator.GetFloat(MoveYParameter):F2}  MoveX {animator.GetFloat(MoveXParameter):F2}  speed x{animator.GetFloat(MoveSpeedParameter):F2}\n" +
             $"turn {turnRate:F0} deg/s  lean {animator.GetFloat(TurnParameter):F2}  on the spot {turningOnSpot}\n" +
             $"state {StateName(state.shortNameHash)} {state.normalizedTime % 1f:F2}{(animator.IsInTransition(0) ? " -> " + StateName(animator.GetNextAnimatorStateInfo(0).shortNameHash) : "")}" +

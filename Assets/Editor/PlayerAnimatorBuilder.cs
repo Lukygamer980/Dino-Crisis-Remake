@@ -1591,7 +1591,7 @@ public static class PlayerAnimatorBuilder
 
     static void AddParameters()
     {
-        foreach (string name in new[] { "MoveX", "MoveY", "Turn", "MoveSpeed", "SetOffEnergy", "AimPitch", "AimYaw", "AimBlend", "CrouchBlend", "UnarmedBlend", "IdleTime" })
+        foreach (string name in new[] { "MoveX", "MoveY", "Turn", "MoveSpeed", "SetOffEnergy", "AimPitch", "AimYaw", "AimBlend", "CrouchBlend", "UnarmedBlend", "IdleTime", "Tired" })
             controller.AddParameter(name, AnimatorControllerParameterType.Float);
         foreach (string name in new[] { "IsAiming", "Moving", "TurnInPlace", "TurnDone", "Grounded", "IsDead", "RapidFire", "Unarmed", "UseStart", "UseStop" })
             controller.AddParameter(name, AnimatorControllerParameterType.Bool);

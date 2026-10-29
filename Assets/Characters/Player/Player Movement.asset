@@ -63,6 +63,13 @@ MonoBehaviour:
   sprintTapWindow: 0.5
   slowDownTime: 0.35
   armedSprintPlayback: 1.1
+  useStamina: 1
+  sprintStaminaSeconds: 6
+  staminaRegenSeconds: 5
+  staminaRegenDelay: 0.8
+  exhaustedRecoverAt: 0.4
+  tiredFadeTime: 1.5
+  tiredBreathInterval: 0.9
   walk:
     playbackSpeed: 1
     blendTime: 0.15
