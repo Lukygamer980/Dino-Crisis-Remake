@@ -79,6 +79,7 @@ public class PlayerMovementSettings : ScriptableObject
     [Header("Hands")]
     [Tooltip("Holstered, she holds the Mobility pack's hands with the thumbs in along the index finger: the pack holds them up off it, which shows at a jog.")]
     public bool relaxHands = true;
+    [Header("Hands (Animator, rebuild)")]
     [Tooltip("The relaxed thumbs' first joint (the Thumb 1 Stretched muscle; the pack's is -1.56, higher lifts the thumb tip). Rebuild the Animator after changing it.")]
     [Range(-2f, 1f)] public float relaxedThumbStretch = -1.56f;
     [Tooltip("How far the relaxed thumbs come in to the index finger (the Thumb Spread muscle; the pack's is 0.28, its tip 3 cm above the index knuckle at a jog; 1 brings it to about 1.5 cm). Rebuild the Animator after changing it.")]
@@ -111,6 +112,8 @@ public class PlayerMovementSettings : ScriptableObject
     [Range(100f, 10000f)] public float aimTurnAcceleration = 3000f;
     [Tooltip("Aiming and standing, turning faster than this (degrees per second) steps her feet round with the turn loop.")]
     [Range(5f, 180f)] public float aimFootworkRate = 30f;
+    [Tooltip("Shooting from the hip on the move, her legs carry on with the stick and only her upper body turns to the shot, for this many seconds after each shot (standing, she turns to face it).")]
+    [Range(0.1f, 2f)] public float hipFireAimHold = 0.6f;
     [Tooltip("Aiming and standing without follow camera, the camera this far off her facing turns her on the spot, until she is within a third of it. The aim offset points the pistol across what is left.")]
     [Range(5f, 90f)] public float aimTurnAngle = 24f;
     [Tooltip("Aiming and standing without follow camera, the camera this far off her facing turns her a quarter turn at once.")]

@@ -748,6 +748,10 @@ public class PlayerController : MonoBehaviour
     // How quickly the turn about, or the turn as she sets off, builds up and eases off.
     float PivotAcceleration => startTurning ? Movement.turnStartAcceleration : Movement.pivotAcceleration;
 
+    // Shooting from the hip on the move: where the last shot went, and how much longer the upper body
+    // keeps pointing there.
+    float hipShotYaw, hipAimTime;
+
     // How fast the camera is turning, degrees per second, from its yaw last frame.
     float viewTurnRate, lastViewYaw;
 
@@ -1031,9 +1035,13 @@ public class PlayerController : MonoBehaviour
         // has to turn while she aims, so the pistol stays on the crosshair as her feet catch up.
         float pitch = viewCamera != null ? Mathf.DeltaAngle(0f, viewCamera.transform.eulerAngles.x) : 0f;
         float yawOff = viewCamera != null ? Mathf.DeltaAngle(transform.eulerAngles.y, viewCamera.transform.eulerAngles.y) : 0f;
+        // Shooting from the hip on the move, the upper body points at the shot instead.
+        hipAimTime = IsAiming || IsHolstered ? 0f : Mathf.Max(0f, hipAimTime - dt);
+        bool hipAiming = hipAimTime > 0f;
+        if (hipAiming) yawOff = Mathf.DeltaAngle(transform.eulerAngles.y, hipShotYaw);
         animator.SetFloat(AimPitchParameter, Mathf.Clamp(-pitch / 90f, -1f, 1f));
-        animator.SetFloat(AimYawParameter, IsAiming ? Mathf.Clamp(yawOff / 90f, -1f, 1f) : 0f);
-        aimWeight = Mathf.MoveTowards(aimWeight, IsAiming ? 1f : 0f, 5f * Time.deltaTime);
+        animator.SetFloat(AimYawParameter, IsAiming || hipAiming ? Mathf.Clamp(yawOff / 90f, -1f, 1f) : 0f);
+        aimWeight = Mathf.MoveTowards(aimWeight, IsAiming || hipAiming ? 1f : 0f, 5f * Time.deltaTime);
         lookWeight = Mathf.MoveTowards(lookWeight, !IsAiming && !IsDead ? 1f : 0f, 3f * Time.deltaTime);
         animator.SetFloat(AimBlendParameter, aimWeight);
         if (aimLayer >= 0) animator.SetLayerWeight(aimLayer, aimWeight);
@@ -1125,10 +1133,20 @@ public class PlayerController : MonoBehaviour
         Vector3 origin = transform.position + Vector3.up * ChestHeight;
         Vector3 direction = (AimPoint(origin, assistAngle) - origin).normalized;
 
-        // From the hip she snaps round to face the shot, so the pistol points the right way. Aiming,
-        // she already faces the crosshair.
+        // From the hip and standing, she snaps round to face the shot, so the pistol points the right way.
+        // On the move her legs carry on where the stick takes her and only her upper body turns to the
+        // shot (the aim offset), for Player Movement's hip fire aim hold. Aiming, she already faces the
+        // crosshair.
         Vector3 facing = new(direction.x, 0f, direction.z);
-        if (!IsAiming && facing.sqrMagnitude > 0.01f) transform.rotation = Quaternion.LookRotation(facing);
+        if (!IsAiming && facing.sqrMagnitude > 0.01f)
+        {
+            if (wantsToMove)
+            {
+                hipShotYaw = Quaternion.LookRotation(facing).eulerAngles.y;
+                hipAimTime = Movement.hipFireAimHold;
+            }
+            else transform.rotation = Quaternion.LookRotation(facing);
+        }
 
         if (Physics.Raycast(origin, direction, out RaycastHit hit, shotRange, ~0, QueryTriggerInteraction.Ignore))
         {
