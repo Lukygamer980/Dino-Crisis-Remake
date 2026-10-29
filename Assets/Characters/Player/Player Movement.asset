@@ -126,6 +126,10 @@ MonoBehaviour:
   quarterTurnAngle: 60
   quarterTurnMax: 120
   turnFinishAngle: 15
+  maxStopWait: 0.35
+  crouchStopClip: 0
+  stopSettleTime: 0.15
+  stopToIdleBlend: 0.35
   idleToMoveBlend: 0.2
   moveToIdleBlend: 0.3
   quarterTurnSpeed: 1.5

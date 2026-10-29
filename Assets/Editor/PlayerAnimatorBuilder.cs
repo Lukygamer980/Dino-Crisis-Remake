@@ -352,6 +352,7 @@ public static class PlayerAnimatorBuilder
             s.quickLeft.speed = s.quickRight.speed = ms.quarterTurnSpeed;
             s.starts = new[] { s.Add("Start Walk", mStarts[0], "Move"), s.Add("Start Jog", mStarts[1], "Move"), s.Add("Start Run", mStarts[2], "Move") };
             s.stops = new[] { s.Add("Walk Stop", mStops[0], "Move"), s.Add("Jog Stop", mStops[1], "Move"), s.Add("Run Stop", mStops[2], "Move") };
+            s.MirrorStops();
             s.moveTurns = new[]
             {
                 (s.Add("Walk Turn Left", M("Walk_L_90", true), "Quarter"), -1, 0f, 1.5f), (s.Add("Walk Turn Right", M("Walk_R_90", true), "Quarter"), 1, 0f, 1.5f),
@@ -380,6 +381,7 @@ public static class PlayerAnimatorBuilder
         uc.quickLeft.speed = uc.quickRight.speed = ms.quarterTurnSpeed;
         uc.start = uc.Add("First Step", M("Crouch_To_CrouchWalk_F"), "Move");
         uc.stops = new[] { uc.Add("Stop", M("CrouchWalk_F_To_Crouch_RU"), "Move") };
+        uc.MirrorStops();
         uc.gaitLoops = new[] { M("CrouchWalk_F_Loop") };
 
         foreach (StanceStates s in stances.Values)
@@ -399,6 +401,7 @@ public static class PlayerAnimatorBuilder
             // PlayerController holds the gait until a stop begins.
             if (s.stop != null) s.stop.tag = "Stop";
             if (s.stops != null) foreach (AnimatorState stop in s.stops) stop.tag = "Stop";
+            if (s.mirroredStops != null) foreach (AnimatorState stop in s.mirroredStops) stop.tag = "Stop";
             // PlayerController starts the wait for the next look around once one begins.
             foreach (AnimatorState look in new[] { s.fidget, s.fidgetAlt }) if (look != null) look.tag = "Fidget";
         }
@@ -509,29 +512,33 @@ public static class PlayerAnimatorBuilder
         foreach (int id in new[] { Relaxed, Hurt })
         {
             StanceStates s = stances[id];
-            StopTransition(s.move, s.stop, ms.sprint, run, Is("Gait", 3), Above("MoveY", 1.5f));
+            StopTransition(s.move, s.stop, ms.sprint, run, false, Is("Gait", 3), Above("MoveY", 1.5f));
             Go(s.stop, s.move, 0.2f, On("Moving"));
-            ExitTo(s.stop, s.idle, 0.9f);
+            ExitTo(s.stop, s.idle, StopExit(s.stop, ms), ms.stopToIdleBlend);
         }
         Interruptible(Go(a.move, aJogStop, 0.2f, Off("Moving"), Is("Gait", 2), Above("MoveY", 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f)));
         Interruptible(Go(a.move, aWalkStop, 0.2f, Off("Moving"), Is("Gait", 1), Above("MoveY", 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f)));
         foreach (AnimatorState stop in new[] { aWalkStop, aJogStop })
         {
             Go(stop, a.move, 0.2f, On("Moving"));
-            ExitTo(stop, a.idle, 0.9f);
+            ExitTo(stop, a.idle, StopExit(stop, ms), ms.stopToIdleBlend);
         }
         Interruptible(Go(ca.move, caStop, 0.2f, Off("Moving"), Above("MoveY", 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f)));
         Go(caStop, ca.move, 0.2f, On("Moving"));
-        ExitTo(caStop, ca.idle, 0.9f);
+        ExitTo(caStop, ca.idle, StopExit(caStop, ms), ms.stopToIdleBlend);
         // Without the pistol: the pack's last steps from a run, a jog or a walk, and its turns on the move.
         foreach (int id in new[] { Unarmed, UnarmedHurt, UnarmedCrouch })
         {
             StanceStates s = stances[id];
             for (int g = s.stops.Length - 1; g >= 0; g--)
             {
-                StopTransition(s.move, s.stops[g], ms.For(g + 1), s.gaitLoops[g], Is("Gait", g + 1), Above("MoveY", g == 2 ? 1.5f : 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
-                Go(s.stops[g], s.move, 0.2f, On("Moving"));
-                ExitTo(s.stops[g], s.idle, 0.9f);
+                // The stop on the foot she has up, as recorded or mirrored, so the wait is half a stride at most.
+                foreach ((AnimatorState stop, bool mirrored) in new[] { (s.stops[g], false), (s.mirroredStops[g], true) })
+                {
+                    StopTransition(s.move, stop, ms.For(g + 1), s.gaitLoops[g], mirrored, Is("Gait", g + 1), Above("MoveY", g == 2 ? 1.5f : 0.3f), Above("MoveX", -0.5f), Below("MoveX", 0.5f));
+                    Go(stop, s.move, 0.2f, On("Moving"));
+                    ExitTo(stop, s.idle, StopExit(stop, ms), ms.stopToIdleBlend);
+                }
             }
             if (s.moveTurns == null) continue;
             foreach ((AnimatorState turn, int side, float above, float below) in s.moveTurns)
@@ -658,7 +665,7 @@ public static class PlayerAnimatorBuilder
 
     // Into a stop clip once she lets go in this gait: with the gait's stopOnFoot, at the point of the
     // gait's cycle the stop clip starts from, so its last steps follow on; otherwise at once.
-    static void StopTransition(AnimatorState move, AnimatorState stop, PlayerMovementSettings.Gait gait, AnimationClip loop,
+    static void StopTransition(AnimatorState move, AnimatorState stop, PlayerMovementSettings.Gait gait, AnimationClip loop, bool mirrored,
         params (AnimatorConditionMode mode, float threshold, string parameter)[] conditions)
     {
         var all = new List<(AnimatorConditionMode, float, string)>(conditions) { Off("Moving"), On("UseStop") };
@@ -666,21 +673,36 @@ public static class PlayerAnimatorBuilder
         if (gait.stopOnFoot)
         {
             transition.hasExitTime = true;
-            transition.exitTime = MatchPhase(loop, (AnimationClip)stop.motion, 0f);
+            transition.exitTime = MatchPhase(loop, (AnimationClip)stop.motion, 0f, mirrored);
         }
     }
 
-    // The point of a loop's cycle (0 to 1) whose legs are closest to `clip`'s at `time`: by the swing
-    // of both thighs and the bend of both knees, moving the same way.
-    static float MatchPhase(AnimationClip loop, AnimationClip clip, float time)
+    // Where a stop clip hands over to the stand (0 to 1): Player Movement's stop settle time after its
+    // last steps have brought her to rest, instead of playing out its slow settling.
+    static float StopExit(AnimatorState stop, PlayerMovementSettings ms)
+    {
+        var clip = (AnimationClip)stop.motion;
+        AnimationCurve x = Curve(clip, "MotionT.x") ?? Curve(clip, "RootT.x"), z = Curve(clip, "MotionT.z") ?? Curve(clip, "RootT.z");
+        if (x == null || z == null) return 0.9f;
+        Vector2 Ground(float t) => new(x.Evaluate(t), z.Evaluate(t));
+        float total = (Ground(clip.length) - Ground(0f)).magnitude, rest = clip.length;
+        for (float t = 0f; t <= clip.length; t += 1f / 60f)
+            if ((Ground(t) - Ground(0f)).magnitude >= 0.99f * total) { rest = t; break; }
+        return Mathf.Clamp((rest + ms.stopSettleTime) / clip.length, 0.15f, 0.9f);
+    }
+
+    // The point of a loop's cycle (0 to 1) whose legs are closest to `clip`'s at `time` (mirrored, with
+    // its legs swapped): by the swing of both thighs and the bend of both knees, moving the same way.
+    static float MatchPhase(AnimationClip loop, AnimationClip clip, float time, bool mirrored = false)
     {
         string[] legs = { "Left Upper Leg Front-Back", "Right Upper Leg Front-Back", "Left Lower Leg Stretch", "Right Lower Leg Stretch" };
+        string[] clipLegs = mirrored ? new[] { legs[1], legs[0], legs[3], legs[2] } : legs;
         var loopCurves = new AnimationCurve[legs.Length];
         var clipCurves = new AnimationCurve[legs.Length];
         for (int i = 0; i < legs.Length; i++)
         {
             loopCurves[i] = Curve(loop, legs[i]);
-            clipCurves[i] = Curve(clip, legs[i]);
+            clipCurves[i] = Curve(clip, clipLegs[i]);
             if (loopCurves[i] == null || clipCurves[i] == null) return 0f;
         }
         const float dt = 1f / 30f;
@@ -718,12 +740,24 @@ public static class PlayerAnimatorBuilder
         // Setting off into a walk, a jog or a run; the last steps from each; and turns on the move,
         // with the side and the MoveY range they play in.
         public AnimatorState[] starts, stops;
+        // The stops mirrored, for setting down the other foot.
+        public AnimatorState[] mirroredStops;
         // The forward loop of each gait, to fit starts and stops to its steps.
         public AnimationClip[] gaitLoops;
         public (AnimatorState state, int side, float above, float below)[] moveTurns;
         public readonly List<AnimatorState> all = new();
 
         public StanceStates(AnimatorStateMachine root, string name) => machine = root.AddStateMachine(name);
+
+        public void MirrorStops()
+        {
+            mirroredStops = new AnimatorState[stops.Length];
+            for (int i = 0; i < stops.Length; i++)
+            {
+                mirroredStops[i] = Add(stops[i].name + " Mirrored", stops[i].motion, "Move");
+                mirroredStops[i].mirror = true;
+            }
+        }
 
         // A tag of "Move" marks a state whose root motion carries her and whose turns PlayerController
         // steers; "Turn" marks a turn on the spot whose root rotation turns her, and "Quarter" a quarter

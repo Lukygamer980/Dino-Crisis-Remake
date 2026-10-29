@@ -146,6 +146,17 @@ public class PlayerMovementSettings : ScriptableObject
     [Range(60f, 180f)] public float quarterTurnMax = 120f;
     [Tooltip("A quarter turn ends as soon as she faces within this of the stick (aiming, of the camera), and she walks on or steers the rest. Letting go, or swinging the stick to the other side, ends it at once too.")]
     [Range(2f, 45f)] public float turnFinishAngle = 15f;
+    [Header("Stopping")]
+    [Tooltip("Letting go, a stop clip waits for the foot it starts on (holstered, either foot), but no longer than this; otherwise she blends straight to a stand.")]
+    [Range(0f, 1.2f)] public float maxStopWait = 0.35f;
+    [Tooltip("Crouched, letting go plays the pack's stop clip (it glides on almost a metre); off, she blends straight to a crouch.")]
+    public bool crouchStopClip = false;
+    [Header("Stopping (Animator, rebuild)")]
+    [Tooltip("A stop clip hands over to the stand this many seconds after its last step has brought her to rest, instead of playing out its slow settling.")]
+    [Range(0f, 1f)] public float stopSettleTime = 0.15f;
+    [Tooltip("Blend from a stop clip to the stand, in seconds.")]
+    [Range(0.05f, 0.8f)] public float stopToIdleBlend = 0.35f;
+
     [Header("Standing (Animator, rebuild)")]
     [Tooltip("Blend from standing into moving when there is no start clip, in seconds.")]
     [Range(0f, 0.6f)] public float idleToMoveBlend = 0.2f;

@@ -595,12 +595,14 @@ public class PlayerController : MonoBehaviour
                 turnDone = quarterTurning || turningAbout;
                 // Letting go: a stop clip that starts on a given foot waits for it, so she walks on at
                 // the same gait until the Animator takes the stop, at most one cycle.
-                if (wasMoving && HasStopClip(Stance(), gait) && ms.For(gait).stopClip && ms.For(gait).stopOnFoot)
+                if (wasMoving && HasStopClip(Stance(), gait) && UseStopClip && ms.For(gait).stopOnFoot)
                 {
                     float[] cycles = Profile.gaitCycles;
                     int index = IsCrouching ? cycles.Length - 1 : gait - 1;
                     float cycle = index >= 0 && index < cycles.Length ? cycles[index] : 1.2f;
-                    stopWait = cycle / Mathf.Max(0.1f, ms.For(gait).playbackSpeed * easedCreep) + 0.05f;
+                    // Holstered either foot will do, so the wait is half a stride at most; never past the max.
+                    float stride = cycle * (HasMirroredStop(Stance()) ? 0.5f : 1f);
+                    stopWait = Mathf.Min(stride / Mathf.Max(0.1f, ms.For(gait).playbackSpeed * easedCreep) + 0.05f, ms.maxStopWait);
                     // Above the stand fade's threshold, at the pace she walked.
                     heldMoveY = Mathf.Max(lastMoveY, 0.35f);
                 }
@@ -880,7 +882,7 @@ public class PlayerController : MonoBehaviour
         animator.SetFloat(MoveSpeedParameter, (free ? playback : 1f) * easedCreep * easedStart);
         animator.SetFloat(SetOffEnergyParameter, setOffEnergy);
         animator.SetBool(UseStartParameter, ms.For(gait).startClip);
-        animator.SetBool(UseStopParameter, ms.For(gait).stopClip);
+        animator.SetBool(UseStopParameter, UseStopClip);
         // Steering as fast as the pack's circle loops turn leans her fully into the curve.
         float leanRate = stance == AimStance ? Mathf.Lerp(p.aimWalkLeanRate, p.aimJogLeanRate, Mathf.Clamp01(moveY - WalkGait))
             : IsHolstered ? (moveY > JogGait ? p.unarmedRunLeanRate : moveY > WalkGait ? p.unarmedJogLeanRate : p.unarmedWalkLeanRate)
@@ -924,6 +926,12 @@ public class PlayerController : MonoBehaviour
         lastStance = stance;
         animator.SetFloat(IdleTimeParameter, idleTime);
     }
+
+    // Whether letting go plays a stop clip (Player Movement's per gait, and crouched) or blends to a stand.
+    bool UseStopClip => IsCrouching ? Movement.crouchStopClip : Movement.For(gait).stopClip;
+
+    // Whether the stance's stops come mirrored too, for the other foot (holstered, standing or crouched).
+    static bool HasMirroredStop(int stance) => stance is UnarmedStance or UnarmedHurtStance or UnarmedCrouchStance;
 
     // Whether the stance has a stop clip for the gait: holstered for every gait, crouched holstered
     // for the walk, and with the pistol down only from a run.
