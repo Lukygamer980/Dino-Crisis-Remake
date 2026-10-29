@@ -341,7 +341,7 @@ public static class PlayerAnimatorBuilder
 
         // Standing without the pistol, and badly hurt without it (the same moves, a hurt stand, no run).
         // A big turn from a stand is a quarter turn; walking or jogging, a sharp one is the pack's
-        // turn on the move. Standing still a while, she waits or talks to herself.
+        // turn on the move. Standing still a while, she waits.
         foreach ((int id, string name, AnimationClip stand) in new[] { (Unarmed, "Unarmed", mIdle), (UnarmedHurt, "Unarmed Hurt", injuredIdle) })
         {
             var s = stances[id] = new StanceStates(machine, name);
@@ -362,8 +362,8 @@ public static class PlayerAnimatorBuilder
             if (id == Unarmed) SprintTurns(s, TurnAboutClip(SprintTurnPath), mRun, ms.sprintTurnMaxPlayback, mirrorLeft: true);
             if (id == Unarmed)
             {
+                // (The pack's conversation idle, talking to someone who isn't there, is left out.)
                 s.fidget = s.Add("Wait", M("Stand_Relaxed_Fgt_v1"));
-                s.fidgetAlt = s.Add("Talk", M("Stand_Relaxed_Conv_v1"));
             }
         }
 

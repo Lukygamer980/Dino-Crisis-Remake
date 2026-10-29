@@ -1002,7 +1002,7 @@ public class PlayerController : MonoBehaviour
         // The gaits' playback speeds, blended as the gaits are.
         float gaitNow = Mathf.Abs(animator.GetFloat(MoveYParameter));
         float playback = gaitNow <= WalkGait ? ms.walk.playbackSpeed : gaitNow <= JogGait ? Mathf.Lerp(ms.walk.playbackSpeed, ms.jog.playbackSpeed, gaitNow - WalkGait)
-            : Mathf.Lerp(ms.jog.playbackSpeed, ms.sprint.playbackSpeed, Mathf.Clamp01(gaitNow - JogGait));
+            : Mathf.Lerp(ms.jog.playbackSpeed, ms.sprint.playbackSpeed * (IsHolstered ? 1f : ms.armedSprintPlayback), Mathf.Clamp01(gaitNow - JogGait));
         easedCreep = Mathf.MoveTowards(easedCreep, creep, 2f * dt);
         float startPlayback = InStartClip() ? Mathf.Lerp(ms.gentleStartPlayback, ms.sharpStartPlayback, setOffEnergy) : 1f;
         easedStart = Mathf.MoveTowards(easedStart, startPlayback, 2f * dt);
@@ -1049,7 +1049,7 @@ public class PlayerController : MonoBehaviour
         // Holstered, the pack's hands with the thumbs relaxed (Player Movement's relax hands).
         if (handsLayer >= 0) animator.SetLayerWeight(handsLayer, ms.relaxHands ? unarmedBlend : 0f);
 
-        // Standing still a while, she looks around (holstered: waits or talks to herself, picked afresh
+        // Standing still a while, she looks around (holstered: waits; the variant is picked afresh
         // each time); the wait starts over in a new stance.
         bool still = (stance == RelaxedStance || stance == AimStance || stance == UnarmedStance) && stance == lastStance && !wantsToMove && !turningOnSpot && !IsReloading && weaponAction == WeaponAction.None;
         // Once a look around begins, the wait for the next one starts over, with a new pick.

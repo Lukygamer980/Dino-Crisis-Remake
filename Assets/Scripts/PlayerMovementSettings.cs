@@ -95,6 +95,9 @@ public class PlayerMovementSettings : ScriptableObject
     [Tooltip("Slowing down from one gait to a slower one (sprint to jog, jog to walk) blends over about this many seconds. Speeding up takes the faster gait's blend time.")]
     [Range(0.05f, 1f)] public float slowDownTime = 0.35f;
 
+    [Tooltip("With the pistol, the sprint (the pistol pack's run, slower than the holstered one) plays this much faster on top of the sprint's playback speed; its root motion follows, so the feet stay planted.")]
+    [Range(1f, 1.4f)] public float armedSprintPlayback = 1.1f;
+
     [Header("Gaits")]
     // The start skips set off about two frames before each Mobility start clip first moves her.
     public Gait walk = new() { blendTime = 0.15f, maxTurnRate = 260f, turnResponse = 5f, turnAcceleration = 700f, startSkip = 0.23f };
