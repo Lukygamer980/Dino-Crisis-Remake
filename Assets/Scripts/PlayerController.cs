@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 // Third-person controls: WASD or the left stick moves relative to where the camera looks, and she
@@ -232,7 +233,11 @@ public class PlayerController : MonoBehaviour
         if (animator != null)
         {
             rootMotion = animator.GetComponent<RootMotionRelay>();
-            if (rootMotion != null) rootMotion.Moved += OnRootMotion;
+            if (rootMotion != null)
+            {
+                rootMotion.Moved += OnRootMotion;
+                rootMotion.IK += OnAnimatorIKPass;
+            }
             aimLayer = animator.GetLayerIndex("Aim Offset");
             lookLayer = animator.GetLayerIndex("Look Offset");
         }
@@ -242,7 +247,11 @@ public class PlayerController : MonoBehaviour
 
     void OnDestroy()
     {
-        if (rootMotion != null) rootMotion.Moved -= OnRootMotion;
+        if (rootMotion != null)
+        {
+            rootMotion.Moved -= OnRootMotion;
+            rootMotion.IK -= OnAnimatorIKPass;
+        }
     }
 
     // She starts with the pistol in its holster and her hands empty.
@@ -384,6 +393,93 @@ public class PlayerController : MonoBehaviour
         }
         MoveBy(step);
     }
+
+    // After the Animator has posed her: during the holstered turn about, she leans further into it
+    // (Player Movement's sprint turn lean, head nod and arms in), as much as the turn has blended in.
+    void LateUpdate()
+    {
+        if (animator == null || !IsHolstered) return;
+        float weight = TagWeight(TurnAboutTag);
+        if (weight > 0f) LeanIntoTurn(weight);
+    }
+
+    void LeanIntoTurn(float weight)
+    {
+        PlayerMovementSettings ms = Movement;
+        Vector3 right = transform.right;
+        if (leanBones == null)
+            leanBones = new[] { HumanBodyBones.Spine, HumanBodyBones.Neck, HumanBodyBones.Head, HumanBodyBones.LeftUpperArm, HumanBodyBones.LeftLowerArm, HumanBodyBones.RightUpperArm, HumanBodyBones.RightLowerArm }
+                .Select(animator.GetBoneTransform).ToArray();
+        Transform spine = leanBones[0], neck = leanBones[1], head = leanBones[2];
+        if (spine == null || neck == null || head == null) return;
+        spine.rotation = Quaternion.AngleAxis(ms.sprintTurnLean * weight, right) * spine.rotation;
+        head.rotation = Quaternion.AngleAxis(ms.sprintTurnHeadNod * weight, right) * head.rotation;
+        // The upper arms swing toward hanging straight down the leaning torso.
+        Vector3 down = (spine.position - neck.position).normalized;
+        for (int i = 3; i < leanBones.Length; i += 2)
+        {
+            Transform arm = leanBones[i], elbow = leanBones[i + 1];
+            if (arm == null || elbow == null) continue;
+            Vector3 along = (elbow.position - arm.position).normalized;
+            Vector3 toward = Vector3.RotateTowards(along, down, ms.sprintTurnArmsIn * weight * Mathf.Deg2Rad, 0f);
+            arm.rotation = Quaternion.FromToRotation(along, toward) * arm.rotation;
+        }
+    }
+
+    // Spine, neck, head, and each upper arm and forearm, looked up once.
+    Transform[] leanBones;
+
+    // How much of the base layer's pose comes from states with this tag, 0 to 1, through transitions.
+    float TagWeight(int tag)
+    {
+        AnimatorStateInfo current = animator.GetCurrentAnimatorStateInfo(0);
+        if (!animator.IsInTransition(0)) return current.tagHash == tag ? 1f : 0f;
+        float blend = animator.GetAnimatorTransitionInfo(0).normalizedTime;
+        return (current.tagHash == tag ? 1f - blend : 0f) + (animator.GetNextAnimatorStateInfo(0).tagHash == tag ? blend : 0f);
+    }
+
+    // The base layer's IK pass. During a turn about, a foot near the ground is set flat on it: the
+    // Mixamo turns, retargeted, leave the planted foot tipped onto its heel or lifted.
+    void OnAnimatorIKPass(int layer)
+    {
+        if (layer != 0 || animator == null) return;
+        // As much as the turn about has blended in; the feet are left alone outside it (HomebrewIK, when
+        // it is on, sets them then).
+        float plant = Movement.turnAboutFootPlant ? TagWeight(TurnAboutTag) : 0f;
+        if (plant <= 0f && !feetPlanted) return;
+        feetPlanted = plant > 0f;
+        PlantFoot(AvatarIKGoal.LeftFoot, animator.leftFeetBottomHeight, plant);
+        PlantFoot(AvatarIKGoal.RightFoot, animator.rightFeetBottomHeight, plant);
+    }
+
+    // Sets a foot that is within Player Movement's foot plant height of the ground flat on it, turned
+    // only the way it points, fading out as it lifts, by `plant` (0 lets it go). `bottom` is how far the
+    // sole is below its IK goal. The ground is taken to be level with her (the turns about are run on
+    // flat floors).
+    void PlantFoot(AvatarIKGoal goal, float bottom, float plant)
+    {
+        float weight = 0f;
+        if (plant > 0f)
+        {
+            Vector3 position = animator.GetIKPosition(goal);
+            float ground = transform.position.y;
+            float height = Movement.footPlantHeight;
+            weight = plant * Mathf.InverseLerp(height, height * 0.3f, position.y - bottom - ground);
+            Vector3 forward = animator.GetIKRotation(goal) * Vector3.forward;
+            forward.y = 0f;
+            if (weight > 0f && forward.sqrMagnitude > 1e-4f)
+            {
+                animator.SetIKPosition(goal, new Vector3(position.x, ground + bottom, position.z));
+                animator.SetIKRotation(goal, Quaternion.LookRotation(forward, Vector3.up));
+            }
+            else weight = 0f;
+        }
+        animator.SetIKPositionWeight(goal, weight);
+        animator.SetIKRotationWeight(goal, weight);
+    }
+
+    // Whether PlantFoot set the feet last pass, so it lets them go once.
+    bool feetPlanted;
 
     // Moves the CharacterController by a step along the ground, with gravity, a jump and any knockback.
     void MoveBy(Vector3 step)
@@ -600,9 +696,11 @@ public class PlayerController : MonoBehaviour
                     float[] cycles = Profile.gaitCycles;
                     int index = IsCrouching ? cycles.Length - 1 : gait - 1;
                     float cycle = index >= 0 && index < cycles.Length ? cycles[index] : 1.2f;
-                    // Holstered either foot will do, so the wait is half a stride at most; never past the max.
+                    // Holstered either foot will do, so the wait is half a stride at most; walking or
+                    // crouched never past the max (faster gaits need their stop to slow down).
                     float stride = cycle * (HasMirroredStop(Stance()) ? 0.5f : 1f);
-                    stopWait = Mathf.Min(stride / Mathf.Max(0.1f, ms.For(gait).playbackSpeed * easedCreep) + 0.05f, ms.maxStopWait);
+                    stopWait = stride / Mathf.Max(0.1f, ms.For(gait).playbackSpeed * easedCreep) + 0.05f;
+                    if (gait == 1 || IsCrouching) stopWait = Mathf.Min(stopWait, ms.maxStopWait);
                     // Above the stand fade's threshold, at the pace she walked.
                     heldMoveY = Mathf.Max(lastMoveY, 0.35f);
                 }
@@ -960,7 +1058,7 @@ public class PlayerController : MonoBehaviour
     }
 
     static readonly string[] KnownStates = { "Idle", "Move", "Turn Left", "Turn Right", "Quick Turn Left", "Quick Turn Right", "Start Walk", "Start Jog", "Start Run",
-        "Walk Stop", "Jog Stop", "Run Stop", "Stop", "Walk Turn Left", "Walk Turn Right", "Jog Turn Left", "Jog Turn Right", "First Step", "Look Around", "Wait", "Talk",
+        "Walk Stop", "Jog Stop", "Run Stop", "Stop", "Walk Stop Mirrored", "Jog Stop Mirrored", "Run Stop Mirrored", "Stop Mirrored", "Sprint Turn Left", "Sprint Turn Right", "Walk Turn Left", "Walk Turn Right", "Jog Turn Left", "Jog Turn Right", "First Step", "Look Around", "Wait", "Talk",
         "Relaxed To Aim", "Aim To Relaxed", "Unarmed To Crouch", "Unarmed Crouch To Stand", "Hit", "Unarmed Hit" };
     static Dictionary<int, string> stateNames;
     static string StateName(int hash)

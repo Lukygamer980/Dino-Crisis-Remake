@@ -117,9 +117,21 @@ public class PlayerMovementSettings : ScriptableObject
     [Range(90f, 180f)] public float sprintTurnAngle = 135f;
     [Tooltip("Only this fast and faster (2 jog, 3 sprint); slower, the quick turn about turns her.")]
     [Range(2f, 3f)] public float sprintTurnMinPace = 2.5f;
+    [Tooltip("During a turn about, a foot within the foot plant height of the ground is set flat on it, so the retargeted Mixamo turn doesn't tip it onto its heel.")]
+    public bool turnAboutFootPlant = true;
+    [Tooltip("How close to the ground (metres, sole to floor) a foot is set flat; it fades out as the foot lifts toward this.")]
+    [Range(0.02f, 0.3f)] public float footPlantHeight = 0.1f;
+    [Tooltip("During the holstered turn about she leans her upper body this many degrees further forward, the head with it...")]
+    [Range(0f, 30f)] public float sprintTurnLean = 13f;
+    [Tooltip("...nods the head this many degrees further down...")]
+    [Range(0f, 30f)] public float sprintTurnHeadNod = 5f;
+    [Tooltip("...and holds the upper arms this many degrees closer to her sides.")]
+    [Range(0f, 40f)] public float sprintTurnArmsIn = 12f;
     [Header("Turning about at a sprint (Animator, rebuild)")]
-    [Tooltip("The turn-about clips play as fast as the sprint runs, but no faster than this times as recorded (the pistol's Mixamo turn is from a slower run).")]
+    [Tooltip("The holstered turn-about clip plays as fast as the sprint runs, but no faster than this times as recorded.")]
     [Range(1f, 2.5f)] public float sprintTurnMaxPlayback = 2f;
+    [Tooltip("The pistol's turn about (from a slower Mixamo run) plays no faster than this times as recorded; the sprint slows into it.")]
+    [Range(0.5f, 2.5f)] public float pistolSprintTurnMaxPlayback = 1.3f;
 
     [Header("Turning about on the move")]
     [Tooltip("Jogging or sprinting, swinging the stick farther round than this turns her about quickly. The packs have no turn-about clip, so the gait plays on while she turns.")]
@@ -147,7 +159,7 @@ public class PlayerMovementSettings : ScriptableObject
     [Tooltip("A quarter turn ends as soon as she faces within this of the stick (aiming, of the camera), and she walks on or steers the rest. Letting go, or swinging the stick to the other side, ends it at once too.")]
     [Range(2f, 45f)] public float turnFinishAngle = 15f;
     [Header("Stopping")]
-    [Tooltip("Letting go, a stop clip waits for the foot it starts on (holstered, either foot), but no longer than this; otherwise she blends straight to a stand.")]
+    [Tooltip("Letting go, a stop clip waits for the foot it starts on (holstered, either foot); walking or crouched no longer than this, else she blends straight to a stand.")]
     [Range(0f, 1.2f)] public float maxStopWait = 0.35f;
     [Tooltip("Crouched, letting go plays the pack's stop clip (it glides on almost a metre); off, she blends straight to a crouch.")]
     public bool crouchStopClip = false;

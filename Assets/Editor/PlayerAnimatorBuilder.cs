@@ -11,7 +11,7 @@ using Object = UnityEngine.Object;
 // The model is picked in the Player Character asset (see PlayerCharacterSetup); by default it is the
 // pack's own MotusMan, the skeleton the clips were recorded on. Every clip plays at the speed it was
 // recorded at, except turns on the spot (Player Movement's turn-in-place and quarter turn speeds) and the
-// Mixamo turns about at a sprint (as fast as the sprint), and root motion moves
+// Mixamo turns about at a sprint (as fast as the sprint, up to a cap), and root motion moves
 // her: PlayerController hands each frame's animated step to the CharacterController, so her feet
 // carry her exactly as far as they step. Turns on the spot and the quarter turns turn her by their
 // own root rotation. On the move PlayerController steers her toward the stick, and the pack's circle
@@ -273,7 +273,7 @@ public static class PlayerAnimatorBuilder
             s.gaitLoops = new[] { walk, jog, run };
             // Mirrored, the pistol turn would hold the pistol in the wrong hand, so she turns right either
             // way. Badly hurt she only jogs, so has no turn about.
-            if (id == Relaxed) SprintTurns(s, TurnAboutClip(PistolSprintTurnPath), run, ms, mirrorLeft: false);
+            if (id == Relaxed) SprintTurns(s, TurnAboutClip(PistolSprintTurnPath), run, ms.pistolSprintTurnMaxPlayback, mirrorLeft: false);
         }
 
         // Aiming: strafes in every direction; walking and jogging forward lean into curves.
@@ -359,7 +359,7 @@ public static class PlayerAnimatorBuilder
                 (s.Add("Jog Turn Left", M("Jog_L_90", true), "Quarter"), -1, 1.5f, 2.5f), (s.Add("Jog Turn Right", M("Jog_R_90", true), "Quarter"), 1, 1.5f, 2.5f),
             };
             s.gaitLoops = new[] { mWalk, mJog, mRun };
-            if (id == Unarmed) SprintTurns(s, TurnAboutClip(SprintTurnPath), mRun, ms, mirrorLeft: true);
+            if (id == Unarmed) SprintTurns(s, TurnAboutClip(SprintTurnPath), mRun, ms.sprintTurnMaxPlayback, mirrorLeft: true);
             if (id == Unarmed)
             {
                 s.fidget = s.Add("Wait", M("Stand_Relaxed_Fgt_v1"));
@@ -633,9 +633,10 @@ public static class PlayerAnimatorBuilder
 
         WriteProfile(upper, windUps, (runCurveLeft, runCurveRight), (aimWalkCurveLeft, aimWalkCurveRight), (aimJogCurveLeft, aimJogCurveRight), mWalkCurve, mJogCurve, mRunCurve, Mathf.Max(uc.gaitLoops[0].length, crouchWalk.length));
 
-        // HomebrewIK places the feet in OnAnimatorIK, which only runs on a layer with its IK pass on.
+        // PlayerController plants the feet in the turns about (and HomebrewIK places them when it is on)
+        // in OnAnimatorIK, which only runs on a layer with its IK pass on.
         AnimatorControllerLayer[] layers = controller.layers;
-        layers[0].iKPass = setup.footIK;
+        layers[0].iKPass = true;
         controller.layers = layers;
 
         EditorUtility.SetDirty(controller);
@@ -1402,12 +1403,12 @@ public static class PlayerAnimatorBuilder
     }
 
     // A stance's turns about at a sprint (tagged TurnAbout, so their root rotation turns her), played as
-    // fast as its sprint loop runs as she comes into them, up to Player Movement's cap.
-    static void SprintTurns(StanceStates s, AnimationClip clip, AnimationClip sprint, PlayerMovementSettings ms, bool mirrorLeft)
+    // fast as its sprint loop runs as she comes into them, up to `maxPlayback`.
+    static void SprintTurns(StanceStates s, AnimationClip clip, AnimationClip sprint, float maxPlayback, bool mirrorLeft)
     {
         AnimationCurve forward = Curve(clip, "RootT.z");
         float entry = forward != null ? (forward.Evaluate(0.1f) - forward.Evaluate(0f)) / 0.1f : 0f;
-        float speed = entry > 0.1f ? Mathf.Clamp(sprint.averageSpeed.magnitude / entry, 1f, ms.sprintTurnMaxPlayback) : 1f;
+        float speed = entry > 0.1f ? Mathf.Min(sprint.averageSpeed.magnitude / entry, maxPlayback) : 1f;
         s.sprintTurnRight = s.Add("Sprint Turn Right", clip, "TurnAbout");
         s.sprintTurnRight.speed = speed;
         if (mirrorLeft)

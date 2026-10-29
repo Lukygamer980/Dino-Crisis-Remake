@@ -114,7 +114,13 @@ MonoBehaviour:
   turnStartAcceleration: 8000
   sprintTurnAngle: 135
   sprintTurnMinPace: 2.5
+  turnAboutFootPlant: 1
+  footPlantHeight: 0.1
   sprintTurnMaxPlayback: 2
+  pistolSprintTurnMaxPlayback: 1.3
+  sprintTurnLean: 13
+  sprintTurnHeadNod: 5
+  sprintTurnArmsIn: 12
   pivotAngle: 135
   pivotMinPace: 1.5
   pivotTurnRate: 720
