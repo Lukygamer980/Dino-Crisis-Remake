@@ -21,6 +21,13 @@ MonoBehaviour:
   footTwistLimit: 12
   footIK: 0
   stateFootIK: 1
+  bodyBaseMap: {fileID: 0}
+  bodyColor: {r: 1, g: 1, b: 1, a: 1}
+  bodyNormalMap: {fileID: 0}
+  bodyMetallicMap: {fileID: 0}
+  bodySmoothness: 0.4
+  bodyOcclusionMap: {fileID: 0}
+  bodyEmissionMap: {fileID: 0}
   handgun: {fileID: 919132149155446097, guid: cf19ccbd5a8aa47d4b5e164910965b9d, type: 3}
   muzzle: {x: 0, y: 0.045, z: 0.19}
   handSocketParent: hand_r_wep

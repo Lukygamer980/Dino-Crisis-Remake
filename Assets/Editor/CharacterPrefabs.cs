@@ -166,6 +166,7 @@ public static class CharacterPrefabs
                     }
             if (swapped) renderer.sharedMaterials = materials;
         }
+        if (setup.HasBodyTextures) ApplyBodyTextures(model, setup);
         StripPhysics(model);
 
         Animator animator = model.GetComponentInChildren<Animator>();
@@ -187,6 +188,64 @@ public static class CharacterPrefabs
         handSocket = Socket("Gun Socket", Parent(model, setup.handSocketParent, animator, HumanBodyBones.RightHand), setup.gripPosition, setup.gripRotation);
         holsterSocket = Socket("Holster Socket", Parent(model, setup.holsterSocketParent, animator, HumanBodyBones.RightUpperLeg), setup.holsterPosition, setup.holsterRotation);
         return animator;
+    }
+
+    // The Player Character's body textures, on a copy of the model's material (URP Lit) put in place of
+    // it on every renderer that uses it. The copy is remade from the model's own material each time.
+    static void ApplyBodyTextures(GameObject model, PlayerCharacterSetup setup)
+    {
+        const string path = "Assets/Characters/Player/Generated/Player Body.mat";
+        Renderer[] renderers = model.GetComponentsInChildren<Renderer>(true);
+        Material source = null;
+        foreach (Renderer renderer in renderers)
+            if (renderer is SkinnedMeshRenderer && renderer.sharedMaterial != null) { source = renderer.sharedMaterial; break; }
+        if (source == null) return;
+        var body = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+        body.CopyMatchingPropertiesFromMaterial(source);
+        // The source's own maps keep rendering (its keywords turn them on), unless replaced below.
+        if (source.shader == body.shader) body.shaderKeywords = source.shaderKeywords;
+        void Set(string property, Texture texture, string keyword = null)
+        {
+            if (texture == null) return;
+            body.SetTexture(property, texture);
+            if (keyword != null) body.EnableKeyword(keyword);
+        }
+        Set("_BaseMap", setup.bodyBaseMap);
+        body.SetColor("_BaseColor", setup.bodyColor);
+        Set("_BumpMap", setup.bodyNormalMap, "_NORMALMAP");
+        Set("_MetallicGlossMap", setup.bodyMetallicMap, "_METALLICSPECGLOSSMAP");
+        body.SetFloat("_Smoothness", setup.bodySmoothness);
+        Set("_OcclusionMap", setup.bodyOcclusionMap, "_OCCLUSIONMAP");
+        if (setup.bodyEmissionMap != null)
+        {
+            Set("_EmissionMap", setup.bodyEmissionMap, "_EMISSION");
+            body.SetColor("_EmissionColor", Color.white);
+            body.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+        }
+        Material saved = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (saved == null) AssetDatabase.CreateAsset(body, path);
+        else
+        {
+            saved.shader = body.shader;
+            saved.CopyPropertiesFromMaterial(body);
+            saved.shaderKeywords = body.shaderKeywords;
+            Object.DestroyImmediate(body);
+            body = saved;
+        }
+        EditorUtility.SetDirty(body);
+        AssetDatabase.SaveAssetIfDirty(body);
+        foreach (Renderer renderer in renderers)
+        {
+            Material[] materials = renderer.sharedMaterials;
+            bool swapped = false;
+            for (int i = 0; i < materials.Length; i++)
+                if (materials[i] == source)
+                {
+                    materials[i] = body;
+                    swapped = true;
+                }
+            if (swapped) renderer.sharedMaterials = materials;
+        }
     }
 
     // A named transform in the model, or else the humanoid bone.

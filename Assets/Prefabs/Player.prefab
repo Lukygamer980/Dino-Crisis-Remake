@@ -266,6 +266,9 @@ MonoBehaviour:
   dryFireSound: {fileID: 8300000, guid: eb5685b26a6494994af389a3293064e8, type: 3}
   reloadSound: {fileID: 8300000, guid: e5198250a6a57408bb36e14bc4a322c4, type: 3}
   drawSound: {fileID: 8300000, guid: 9158afb6966d445db9caf1dccf7acbcc, type: 3}
+  exhaustedSound: {fileID: 0}
+  recoveredSound: {fileID: 0}
+  tiredBreathSounds: []
   muzzleEffect: {fileID: 9189447297730513079}
   fleshImpact: {fileID: 1000013169864706, guid: e5a3d6da48298a0458c1990f58c27069, type: 3}
   metalImpact: {fileID: 1000010355441670, guid: 02a509a7fa70ed740ba4197e20c5d32d, type: 3}

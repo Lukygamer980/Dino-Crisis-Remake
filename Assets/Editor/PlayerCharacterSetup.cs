@@ -40,6 +40,23 @@ public class PlayerCharacterSetup : ScriptableObject
     [Tooltip("Unity's Foot IK on the Animator's states: puts the feet exactly where the clip's actor put his. He wore flat shoes, so on a model in heels it bends the ankles; leave it off for one.")]
     public bool stateFootIK;
 
+    [Header("Body textures")]
+    [Tooltip("Textures for the body (for Regina's outfit, say). With any of them set, Rebuild Character Prefabs makes a copy of the model's own material (Generated/Player Body.mat, URP Lit) with them and puts it on the model; unset, the model keeps its material. They have to fit the model's UVs.")]
+    public Texture2D bodyBaseMap;
+    [Tooltip("The base map's tint (white leaves it as it is). With body textures set, this and the smoothness replace the model's own.")]
+    public Color bodyColor = Color.white;
+    [Tooltip("A tangent-space normal map (import it as Normal map).")]
+    public Texture2D bodyNormalMap;
+    [Tooltip("URP's metallic map: metallic in red, smoothness in alpha.")]
+    public Texture2D bodyMetallicMap;
+    [Range(0f, 1f)] public float bodySmoothness = 0.4f;
+    public Texture2D bodyOcclusionMap;
+    [Tooltip("Lit parts (its colour is the emission).")]
+    public Texture2D bodyEmissionMap;
+
+    // Whether any body texture is set.
+    public bool HasBodyTextures => bodyBaseMap != null || bodyNormalMap != null || bodyMetallicMap != null || bodyOcclusionMap != null || bodyEmissionMap != null;
+
     [Header("Handgun")]
     public GameObject handgun;
     [Tooltip("Where the muzzle is, in the handgun's own space; shots and the flash start there.")]
