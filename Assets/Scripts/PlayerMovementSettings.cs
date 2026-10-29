@@ -98,6 +98,24 @@ public class PlayerMovementSettings : ScriptableObject
     [Tooltip("With the pistol, the sprint (the pistol pack's run, slower than the holstered one) plays this much faster on top of the sprint's playback speed; its root motion follows, so the feet stay planted.")]
     [Range(1f, 1.4f)] public float armedSprintPlayback = 1.1f;
 
+    [Header("Head look")]
+    [Tooltip("Her head turns to where she looks: at something she can use nearby, else where the camera looks (on the move, partly where she heads). Not while aiming or shooting.")]
+    public bool headLook = true;
+    [Tooltip("How much the head turns all the way to it (0 to 1).")]
+    [Range(0f, 1f)] public float headLookWeight = 0.8f;
+    [Tooltip("How much of the turn her body takes (0 to 1); the head takes the rest.")]
+    [Range(0f, 1f)] public float headLookBodyWeight = 0.15f;
+    [Tooltip("How far the look can turn her (0 free, 1 not at all; 0.5 is half way to the limits).")]
+    [Range(0f, 1f)] public float headLookClamp = 0.5f;
+    [Tooltip("She doesn't look at anything farther round from her facing than this, in degrees.")]
+    [Range(30f, 180f)] public float headLookMaxAngle = 100f;
+    [Tooltip("How quickly her gaze follows, per second (higher snaps).")]
+    [Range(0.5f, 20f)] public float headLookSpeed = 6f;
+    [Tooltip("On the move, how much she looks where the camera looks rather than where she heads (0 to 1).")]
+    [Range(0f, 1f)] public float headLookCameraShare = 0.5f;
+    [Tooltip("Something she can pick up or use this close (metres) draws her gaze.")]
+    [Range(0.5f, 8f)] public float headFocusRange = 3f;
+
     [Header("Stamina")]
     [Tooltip("Sprinting spends stamina and running out leaves her out of breath; off, she sprints as long as she likes.")]
     public bool useStamina = true;

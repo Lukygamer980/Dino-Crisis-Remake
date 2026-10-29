@@ -63,6 +63,14 @@ MonoBehaviour:
   sprintTapWindow: 0.5
   slowDownTime: 0.35
   armedSprintPlayback: 1.1
+  headLook: 1
+  headLookWeight: 0.8
+  headLookBodyWeight: 0.15
+  headLookClamp: 0.5
+  headLookMaxAngle: 100
+  headLookSpeed: 6
+  headLookCameraShare: 0.5
+  headFocusRange: 3
   useStamina: 1
   sprintStaminaSeconds: 6
   staminaRegenSeconds: 5

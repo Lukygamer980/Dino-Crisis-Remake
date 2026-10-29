@@ -458,6 +458,57 @@ public class PlayerController : MonoBehaviour
         MoveBy(step);
     }
 
+    // ---- Head look ----
+
+    // Where she looks (the IK look-at in the base layer's IK pass): at the nearest thing she can use
+    // within Player Movement's head focus range, else where the camera looks, and on the move partly
+    // where she is heading. Not aiming (the pistol leads), shooting from the hip, dead, or turning
+    // about, nor anywhere behind her.
+    void UpdateHeadLook(PlayerMovementSettings ms, float dt)
+    {
+        Transform head = animator.GetBoneTransform(HumanBodyBones.Head);
+        Vector3 eye = head != null ? head.position : transform.position + Vector3.up * 1.6f;
+        Vector3 forward = transform.forward;
+        Interactable focus = ms.headLook ? FocusTarget(ms, eye) : null;
+        Vector3 target;
+        if (focus != null) target = focus.transform.position;
+        else
+        {
+            Vector3 gaze = viewCamera != null ? viewCamera.transform.forward : forward;
+            if (wantsToMove) gaze = Vector3.Slerp(forward, gaze, ms.headLookCameraShare);
+            target = eye + gaze * 10f;
+        }
+        Vector3 across = target - eye;
+        across.y = 0f;
+        bool look = ms.headLook && !IsAiming && hipAimTime <= 0f && !IsDead && !ClipTag(TurnAboutTag)
+            && across.sqrMagnitude > 1e-4f && Vector3.Angle(forward, across) <= ms.headLookMaxAngle;
+        if (!lookPointSet) lookPoint = target;
+        lookPointSet = true;
+        lookPoint = Vector3.Lerp(lookPoint, target, 1f - Mathf.Exp(-ms.headLookSpeed * dt));
+        lookAtWeight = Mathf.MoveTowards(lookAtWeight, look ? 1f : 0f, dt / 0.3f);
+    }
+
+    // The nearest thing she can use within the head focus range and in front of her.
+    Interactable FocusTarget(PlayerMovementSettings ms, Vector3 eye)
+    {
+        Interactable nearest = null;
+        float nearestDistance = ms.headFocusRange;
+        foreach (Interactable interactable in Interactable.All)
+        {
+            Vector3 to = interactable.transform.position - eye;
+            float distance = to.magnitude;
+            to.y = 0f;
+            if (distance >= nearestDistance || to.sqrMagnitude < 1e-4f || Vector3.Angle(transform.forward, to) > ms.headLookMaxAngle) continue;
+            nearest = interactable;
+            nearestDistance = distance;
+        }
+        return nearest;
+    }
+
+    Vector3 lookPoint;
+    bool lookPointSet;
+    float lookAtWeight;
+
     // After the Animator has posed her: during the holstered turn about, she leans further into it
     // (Player Movement's sprint turn lean, head nod and arms in), as much as the turn has blended in.
     void LateUpdate()
@@ -509,7 +560,14 @@ public class PlayerController : MonoBehaviour
         if (layer != 0 || animator == null) return;
         // As much as the turn about has blended in; the feet are left alone outside it (HomebrewIK, when
         // it is on, sets them then).
-        float plant = Movement.turnAboutFootPlant ? TagWeight(TurnAboutTag) : 0f;
+        // Her head (and a little of her body) turns to where she looks.
+        PlayerMovementSettings ms = Movement;
+        if (lookAtWeight > 0f)
+        {
+            animator.SetLookAtWeight(lookAtWeight * ms.headLookWeight, ms.headLookBodyWeight, 1f, 1f, ms.headLookClamp);
+            animator.SetLookAtPosition(lookPoint);
+        }
+        float plant = ms.turnAboutFootPlant ? TagWeight(TurnAboutTag) : 0f;
         if (plant <= 0f && !feetPlanted) return;
         feetPlanted = plant > 0f;
         PlantFoot(AvatarIKGoal.LeftFoot, animator.leftFeetBottomHeight, plant);
@@ -1091,6 +1149,7 @@ public class PlayerController : MonoBehaviour
         unarmedBlend = Mathf.MoveTowards(unarmedBlend, IsHolstered ? 1f : 0f, 4f * dt);
         animator.SetFloat(UnarmedBlendParameter, unarmedBlend);
         animator.SetFloat(TiredParameter, Tiredness);
+        UpdateHeadLook(ms, dt);
         animator.SetFloat(CrouchBlendParameter, CrouchAmount);
 
         // Where the camera looks: up and down for the pistol or the head, and how far the body still
