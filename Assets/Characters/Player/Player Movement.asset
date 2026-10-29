@@ -104,9 +104,11 @@ MonoBehaviour:
     startBlend: 0.15
     stopOnFoot: 1
     stopBlend: 0.2
-  aimTurnResponse: 7.5
-  aimMaxTurnRate: 220
-  aimTurnAcceleration: 1200
+  aimFollowCamera: 1
+  aimTurnResponse: 12
+  aimMaxTurnRate: 420
+  aimTurnAcceleration: 3000
+  aimFootworkRate: 30
   aimTurnAngle: 24
   aimQuarterTurnAngle: 80
   turnStartAngle: 45
@@ -116,11 +118,11 @@ MonoBehaviour:
   sprintTurnMinPace: 2.5
   turnAboutFootPlant: 1
   footPlantHeight: 0.1
-  sprintTurnMaxPlayback: 2
-  pistolSprintTurnMaxPlayback: 1.3
   sprintTurnLean: 13
   sprintTurnHeadNod: 5
   sprintTurnArmsIn: 12
+  sprintTurnMaxPlayback: 2
+  pistolSprintTurnMaxPlayback: 1.3
   pivotAngle: 135
   pivotMinPace: 1.5
   pivotTurnRate: 720

@@ -93,15 +93,19 @@ public class PlayerMovementSettings : ScriptableObject
     public Gait sprint = new() { blendTime = 0.25f, maxTurnRate = 200f, turnResponse = 4f, turnAcceleration = 600f, turnClipAngle = 180f, startSkip = 0.32f };
 
     [Header("Aiming")]
-    [Tooltip("Aiming, she faces where the camera looks and the left stick moves her that way round: pushed against the camera she backs off without turning. The stick's push sets the pace up to a walk (a creep below it); holding the run button jogs.")]
-    [Range(0.5f, 20f)] public float aimTurnResponse = 7.5f;
-    [Tooltip("Aiming on the move, the fastest she turns toward the camera, in degrees per second.")]
-    [Range(30f, 720f)] public float aimMaxTurnRate = 220f;
+    [Tooltip("Aiming, her body follows the camera smoothly, turning as fast as it turns (standing, the turn loop only steps her feet round); off, standing she turns in steps (the turn loop past the aim turn angle, the quarter turn past its angle).")]
+    public bool aimFollowCamera = true;
+    [Tooltip("Aiming, how hard she makes up the angle still between her and the camera: degrees per second for each degree off. The left stick moves her that way round: pushed against the camera she backs off without turning.")]
+    [Range(0.5f, 30f)] public float aimTurnResponse = 12f;
+    [Tooltip("Aiming, the fastest she turns toward the camera, in degrees per second.")]
+    [Range(30f, 1080f)] public float aimMaxTurnRate = 420f;
     [Tooltip("Aiming, how quickly a turn builds up and eases off, in degrees per second squared.")]
-    [Range(100f, 5000f)] public float aimTurnAcceleration = 1200f;
-    [Tooltip("Aiming and standing, the camera this far off her facing turns her on the spot, until she is within a third of it. The aim offset points the pistol across what is left.")]
+    [Range(100f, 10000f)] public float aimTurnAcceleration = 3000f;
+    [Tooltip("Aiming and standing, turning faster than this (degrees per second) steps her feet round with the turn loop.")]
+    [Range(5f, 180f)] public float aimFootworkRate = 30f;
+    [Tooltip("Aiming and standing without follow camera, the camera this far off her facing turns her on the spot, until she is within a third of it. The aim offset points the pistol across what is left.")]
     [Range(5f, 90f)] public float aimTurnAngle = 24f;
-    [Tooltip("Aiming and standing, the camera this far off her facing turns her a quarter turn at once.")]
+    [Tooltip("Aiming and standing without follow camera, the camera this far off her facing turns her a quarter turn at once.")]
     [Range(30f, 180f)] public float aimQuarterTurnAngle = 80f;
 
     [Header("Setting off with a turn")]

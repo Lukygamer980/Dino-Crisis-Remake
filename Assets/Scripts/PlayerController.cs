@@ -273,6 +273,7 @@ public class PlayerController : MonoBehaviour
         UpdateCrouch(canAct);
 
         Quaternion view = CameraYaw();
+        ReadViewTurn(view);
         bool fromKeys = false;
         Vector2 stick = canAct ? GameInput.MoveStick(out fromKeys) : Vector2.zero;
         float deflection = Movement.Deflection(stick.magnitude);
@@ -385,7 +386,8 @@ public class PlayerController : MonoBehaviour
     void OnRootMotion(Vector3 step, Quaternion turn)
     {
         bool quarter = ClipTag(QuarterTag) || ClipTag(TurnAboutTag);
-        if (quarter || ClipTag(TurnTag))
+        // Aiming, she follows the camera by steering, the turn loop only stepping her feet round.
+        if ((quarter || ClipTag(TurnTag)) && !(IsAiming && Movement.aimFollowCamera))
         {
             float yaw = Mathf.DeltaAngle(0f, turn.eulerAngles.y);
             transform.Rotate(0f, yaw, 0f);
@@ -542,10 +544,13 @@ public class PlayerController : MonoBehaviour
             stopWait = 0f;
             creep = 1f;
             float error = Mathf.DeltaAngle(yaw, view.eulerAngles.y);
+            // She turns as fast as the camera does, and makes up what is left of the angle besides, so
+            // the body keeps up with the aim instead of trailing it.
+            if (ms.aimFollowCamera) targetRate = Mathf.Clamp(viewTurnRate + error * ms.aimTurnResponse, -ms.aimMaxTurnRate, ms.aimMaxTurnRate);
             if (wantsToMove)
             {
                 turningOnSpot = false;
-                targetRate = Mathf.Clamp(error * ms.aimTurnResponse, -ms.aimMaxTurnRate, ms.aimMaxTurnRate);
+                if (!ms.aimFollowCamera) targetRate = Mathf.Clamp(error * ms.aimTurnResponse, -ms.aimMaxTurnRate, ms.aimMaxTurnRate);
                 // She keeps facing the camera and steps the stick's way round it, backing off when it
                 // points behind her. The stick sets the pace up to a walk; aiming she never runs.
                 Vector3 local = Quaternion.Inverse(transform.rotation) * move.normalized;
@@ -556,6 +561,14 @@ public class PlayerController : MonoBehaviour
                 moveY = local.z * Mathf.Max(WalkGait, pace);
                 // Setting off ends a quarter turn; she strafes round the rest.
                 turnDone = quarterTurning;
+                if (animator != null) animator.ResetTrigger(QuickTurnParameter);
+            }
+            else if (ms.aimFollowCamera)
+            {
+                // Standing, the turn loop steps her feet round while she turns faster than the aim
+                // footwork rate.
+                if (Mathf.Abs(turnRate) > 1f) turnSide = turnRate < 0f ? -1 : 1;
+                turningOnSpot = Mathf.Abs(turnRate) > (turningOnSpot ? ms.aimFootworkRate * 0.5f : ms.aimFootworkRate);
                 if (animator != null) animator.ResetTrigger(QuickTurnParameter);
             }
             else
@@ -721,7 +734,8 @@ public class PlayerController : MonoBehaviour
 
         // The clip turns her on the spot; on the move, turns build up and ease off rather than snapping,
         // also as a turn clip takes over. Steering picks up as soon as a quarter turn is over.
-        if (clipTurning && !(turnDone && wantsToMove) || turningOnSpot || !wantsToMove) targetRate = 0f;
+        bool followingAim = IsAiming && ms.aimFollowCamera;
+        if (!followingAim && (clipTurning && !(turnDone && wantsToMove) || turningOnSpot || !wantsToMove)) targetRate = 0f;
         if (IsAiming) pivoting = startTurning = false;
         if (pivoting) pivotWindingDown = true;
         else if (Mathf.Abs(turnRate) <= (wantsToMove ? ms.For(gait).maxTurnRate : 1f)) pivotWindingDown = false;
@@ -732,6 +746,16 @@ public class PlayerController : MonoBehaviour
 
     // How quickly the turn about, or the turn as she sets off, builds up and eases off.
     float PivotAcceleration => startTurning ? Movement.turnStartAcceleration : Movement.pivotAcceleration;
+
+    // How fast the camera is turning, degrees per second, from its yaw last frame.
+    float viewTurnRate, lastViewYaw;
+
+    void ReadViewTurn(Quaternion view)
+    {
+        float yaw = view.eulerAngles.y, dt = Time.deltaTime;
+        viewTurnRate = dt > 0f ? Mathf.DeltaAngle(lastViewYaw, yaw) / dt : 0f;
+        lastViewYaw = yaw;
+    }
 
     // Asks the Animator for a quarter turn to this side, from a stand or (the pack's turn) on the move.
     void QuarterTurn(int side, bool onTheMove)
